@@ -1,0 +1,724 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>NexHiro Platform</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Readex+Pro:wght@400;500;600&display=swap">
+<style>
+/* Layout idea: a side rail of areas, and inside each area one large bento cell that carries the work,
+   with quieter cells around it. Colours are RGB channels so Tailwind alpha utilities work in both themes. */
+:root {
+  --canvas: 247 252 252; --surface: 255 255 255; --sunken: 237 245 245; --line: 220 232 232;
+  --ink: 0 30 31; --muted: 75 96 97;
+  --brand: 11 122 108; --brand-bright: 19 184 165; --brand-soft: 226 246 243; --on-brand: 255 255 255;
+  --seek: 1 98 214; --reach: 194 65 12; --voice: 147 51 234; --next: 11 122 108; --brain: 190 24 93;
+  --good: 18 115 55; --warn: 146 84 4; --bad: 185 28 28;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --canvas: 10 26 27; --surface: 13 31 32; --sunken: 18 37 38; --line: 31 58 60;
+    --ink: 228 241 241; --muted: 143 176 178;
+    --brand: 47 208 189; --brand-bright: 19 184 165; --brand-soft: 15 51 48; --on-brand: 0 30 31;
+    --seek: 127 176 255; --reach: 255 154 95; --voice: 212 155 255; --next: 47 208 189; --brain: 244 124 178;
+    --good: 84 204 128; --warn: 234 179 8; --bad: 248 120 120;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: 10 26 27; --surface: 13 31 32; --sunken: 18 37 38; --line: 31 58 60;
+  --ink: 228 241 241; --muted: 143 176 178;
+  --brand: 47 208 189; --brand-bright: 19 184 165; --brand-soft: 15 51 48; --on-brand: 0 30 31;
+  --seek: 127 176 255; --reach: 255 154 95; --voice: 212 155 255; --next: 47 208 189; --brain: 244 124 178;
+  --good: 84 204 128; --warn: 234 179 8; --bad: 248 120 120;
+}
+body { background: rgb(var(--canvas)); color: rgb(var(--ink)); font-family: "IBM Plex Sans Arabic", system-ui, sans-serif; font-size: 16px; line-height: 1.6; }
+.gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+@media (min-width: 640px) { .gutter { padding-left: max(32px, env(safe-area-inset-left, 0px)); padding-right: max(32px, env(safe-area-inset-right, 0px)); } }
+dialog::backdrop { background: rgb(0 30 31 / .55); }
+</style>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+const tw = (n) => `rgb(var(--${n}) / <alpha-value>)`;
+tailwind.config = { theme: { extend: {
+  colors: { canvas: tw("canvas"), surface: tw("surface"), sunken: tw("sunken"), line: tw("line"), ink: tw("ink"), muted: tw("muted"),
+    brand: { DEFAULT: tw("brand"), bright: tw("brand-bright"), soft: tw("brand-soft") }, onbrand: tw("on-brand"),
+    seek: tw("seek"), reach: tw("reach"), voice: tw("voice"), next: tw("next"), brain: tw("brain"),
+    good: tw("good"), warn: tw("warn"), bad: tw("bad") },
+  fontFamily: { display: ['"Readex Pro"', '"IBM Plex Sans Arabic"', "system-ui", "sans-serif"] },
+  boxShadow: { card: "0 20px 60px rgb(0 30 31 / 0.06)" },
+} } };
+</script>
+
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-ink focus:px-4 focus:py-2 focus:text-surface">Skip to content</a>
+<div id="app"></div>
+<dialog id="dlg" aria-labelledby="dlg-title" aria-describedby="dlg-desc" class="m-auto w-full max-w-lg rounded-3xl bg-surface p-0 text-ink max-sm:m-0 max-sm:h-full max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none"></dialog>
+<div id="toast" role="status" aria-live="polite" class="gutter pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pb-4"></div>
+
+<script>
+/* ============ NexHiro platform prototype. Every name and number is sample data. ============ */
+const S = {
+  lang: "ar", theme: null, period: 7, route: "dashboard", dashAgent: "next",
+  recFilter: "all", selConvo: "c1", selCall: "v1", selSeek: "s1", seekProject: "tao",
+  q: "", fProject: "all", fStage: "all", sort: "score", projFilter: "all",
+  brainQ: "", answer: null, chartTable: false, enrichQ: "", enrichResult: false, plan: "plus", cancelled: false,
+};
+const t = (ar, en) => (S.lang === "ar" ? ar : en);
+const L = (o) => o[S.lang];
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const num = (n) => `<bdi dir="ltr" class="tabular-nums">${n}</bdi>`;
+const sep = () => t("، ", ", ");
+
+/* ---------- Icons ---------- */
+const PATHS = {
+  seek: ["M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M20 20l-4-4"], reach: ["M21 3L10 14", "M21 3l-7 18-4-7-7-4 18-7z"],
+  voice: ["M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z", "M5 11a7 7 0 0 0 14 0", "M12 18v3"],
+  next: ["M4 12h10", "M10 6l6 6-6 6", "M20 5v14"], brain: ["M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2L12 3z"],
+  plus: ["M12 5v14", "M5 12h14"], x: ["M6 6l12 12", "M18 6L6 18"], check: ["M5 12l5 5 9-10"], chevron: ["M9 6l6 6-6 6"],
+  dashboard: ["M4 4h7v7H4z", "M13 4h7v7h-7z", "M4 13h7v7H4z", "M13 13h7v7h-7z"],
+  projects: ["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"],
+  shortlist: ["M12 4l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.5-.8L12 4z"],
+  enrichment: ["M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1", "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"],
+  analytics: ["M4 20V10", "M10 20V4", "M16 20v-7", "M22 20H2"],
+  sun: ["M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z", "M12 2v2", "M12 20v2", "M2 12h2", "M20 12h2", "M5 5l1.5 1.5", "M17.5 17.5L19 19", "M19 5l-1.5 1.5", "M6.5 17.5L5 19"],
+  moon: ["M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"], undo: ["M9 7L4 12l5 5", "M4 12h11a5 5 0 0 1 0 10h-3"],
+  alert: ["M12 4l9 16H3L12 4z", "M12 10v4", "M12 17.5v.5"], table: ["M3 5h18v14H3z", "M3 10h18", "M9 5v14"],
+  billing: ["M3 6h18v12H3z", "M3 10h18", "M7 15h4"],
+};
+const icon = (name, cls = "h-5 w-5", flip = false) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0 ${flip ? "rtl:-scale-x-100" : ""} ${cls}">${PATHS[name].map((d) => `<path d="${d}"/>`).join("")}</svg>`;
+
+/* ---------- Agents (full class literals so Tailwind sees them) ---------- */
+const AGENTS = [
+  { id: "seek", text: "text-seek", solid: "bg-seek", soft: "bg-seek/10", border: "border-seek", role: { ar: "يبحث ويرتّب المرشحين", en: "Finds and ranks candidates" } },
+  { id: "reach", text: "text-reach", solid: "bg-reach", soft: "bg-reach/10", border: "border-reach", role: { ar: "يتواصل ويتابع الردود", en: "Reaches out and follows up" } },
+  { id: "voice", text: "text-voice", solid: "bg-voice", soft: "bg-voice/10", border: "border-voice", role: { ar: "يجري مكالمات الفرز الأولي", en: "Runs first screening calls" } },
+  { id: "next", text: "text-next", solid: "bg-next", soft: "bg-next/10", border: "border-next", role: { ar: "يقترح الخطوة التالية", en: "Suggests the next step" } },
+  { id: "brain", text: "text-brain", solid: "bg-brain", soft: "bg-brain/10", border: "border-brain", role: { ar: "يجيب عن أسئلتك", en: "Answers your questions" } },
+];
+const AGENT = Object.fromEntries(AGENTS.map((a) => [a.id, a]));
+const agentName = (id) => "Hiro:" + id[0].toUpperCase() + id.slice(1);
+
+/* ---------- Sample data ---------- */
+const P = {
+  tao: { id: "tao", ar: "أخصائي استقطاب مواهب", en: "Talent Acquisition Officer", meta: { ar: "الرياض، حضوري، دوام كامل", en: "Riyadh, on-site, full-time" }, status: "active", sourced: 24, short: 14, match: 86 },
+  onb: { id: "onb", ar: "أخصائي تهيئة موظفين", en: "Onboarding Specialist", meta: { ar: "الرياض، حضوري، دوام كامل", en: "Riyadh, on-site, full-time" }, status: "active", sourced: 65, short: 8, match: 81 },
+  sd: { id: "sd", ar: "مدير مبيعات", en: "Sales Director", meta: { ar: "جدة، هجين، دوام كامل", en: "Jeddah, hybrid, full-time" }, status: "active", sourced: 31, short: 6, match: 74 },
+  bc: { id: "bc", ar: "مطوّر بلوك تشين", en: "Blockchain Developer", meta: { ar: "عن بُعد، دوام كامل", en: "Remote, full-time" }, status: "paused", sourced: 25, short: 2, match: 54 },
+};
+const STAGES = {
+  shortlisted: { ar: "في القائمة المختصرة", en: "Shortlisted", tone: "muted" }, pending: { ar: "طلب تواصل معلّق", en: "Pending connection", tone: "muted" },
+  connected: { ar: "تم التواصل", en: "Connected", tone: "muted" }, messaging: { ar: "مراسلة", en: "Messaging", tone: "warn" },
+  resume: { ar: "استُلمت السيرة", en: "Resume received", tone: "good" }, screening: { ar: "فرز هيرو", en: "AI screening", tone: "warn" },
+  review: { ar: "قيد المراجعة", en: "Under review", tone: "warn" }, rejected: { ar: "مرفوض", en: "Rejected", tone: "bad" }, hired: { ar: "تم التعيين", en: "Hired", tone: "good" },
+};
+let CANDS = [
+  { id: "sara", ar: "سارة المطيري", en: "Sara Almutairi", p: "tao", match: 86, stage: "screening", exp: 6, insight: { ar: "ردّت وتنتظر مكالمة الفرز", en: "Replied and is waiting for screening" }, next: "screen" },
+  { id: "reem", ar: "ريم الحربي", en: "Reem Alharbi", p: "tao", match: 83, stage: "resume", exp: 7, insight: { ar: "السيرة تطابق 5 من 6 متطلبات أساسية", en: "Resume meets 5 of 6 must-haves" }, next: "screen" },
+  { id: "yousef", ar: "يوسف العتيبي", en: "Yousef Alotaibi", p: "onb", match: 81, stage: "review", exp: 5, insight: { ar: "أنهى الفرز بنتيجة «يُنظر فيه»", en: "Screening ended with Consider" }, next: "interview" },
+  { id: "noura", ar: "نورة القحطاني", en: "Noura Alqahtani", p: "sd", match: 79.5, stage: "shortlisted", exp: 9, insight: { ar: "مطابقة قوية ولا تواصل مسجَّل", en: "Strong match, no outreach yet" }, next: "connect" },
+  { id: "huda", ar: "هدى الزهراني", en: "Huda Alzahrani", p: "tao", match: 77, stage: "hired", exp: 8, insight: { ar: "قبلت العرض", en: "Accepted the offer" }, next: null },
+  { id: "omar", ar: "عمر بكر", en: "Omar Bakr", p: "bc", match: 72, stage: "shortlisted", exp: 6, insight: { ar: "خبرة Solidity موثّقة في مشروعين", en: "Solidity experience shown in two projects" }, next: "connect" },
+  { id: "faisal", ar: "فيصل الدوسري", en: "Faisal Aldosari", p: "sd", match: 68, stage: "messaging", exp: 11, insight: { ar: "أبدى اهتمامه بالوظيفة", en: "Showed interest in the role" }, next: "screen" },
+  { id: "khalid", ar: "خالد الشهري", en: "Khalid Alshehri", p: "onb", match: 61, stage: "connected", exp: 4, insight: { ar: "لم يرد منذ 9 أيام", en: "No reply for 9 days" }, next: "hold" },
+  { id: "majed", ar: "ماجد العنزي", en: "Majed Alanazi", p: "sd", match: 57, stage: "pending", exp: 12, insight: { ar: "طلب التواصل لم يُقبل بعد", en: "Connection request not accepted yet" }, next: null },
+  { id: "layan", ar: "ليان حداد", en: "Layan Haddad", p: "bc", match: 38, stage: "review", exp: 2, insight: { ar: "لا تستوفي متطلبين أساسيين", en: "Misses two must-haves" }, next: "reject" },
+];
+const cand = (id) => CANDS.find((c) => c.id === id);
+const STATS = { 7: { seek: 24, reach: 13, voice: 3, funnel: [42, 12, 8, 1], series: [4, 7, 5, 9, 6, 8, 3], labels: { ar: ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"], en: ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"] } },
+  30: { seek: 96, reach: 13, voice: 11, funnel: [139, 39, 27, 3], series: [31, 38, 28, 42], labels: { ar: ["الأسبوع 1", "الأسبوع 2", "الأسبوع 3", "الأسبوع 4"], en: ["Week 1", "Week 2", "Week 3", "Week 4"] } } };
+let SOURCED = [
+  { id: "s1", ar: "دانة السبيعي", en: "Dana Alsubaie", p: "tao", match: 91, title: { ar: "أخصائية توظيف أولى، 7 سنوات", en: "Senior recruiter, 7 years" }, loc: { ar: "الرياض", en: "Riyadh" }, has: { ar: ["توظيف تقني", "LinkedIn Recruiter", "مقابلات منظمة"], en: ["Tech hiring", "LinkedIn Recruiter", "Structured interviews"] }, lacks: { ar: ["شهادة CIPD (تفضيل)"], en: ["CIPD certificate (preference)"] }, short: false },
+  { id: "s2", ar: "تركي المالكي", en: "Turki Almalki", p: "tao", match: 84, title: { ar: "أخصائي استقطاب، 5 سنوات", en: "Talent acquisition specialist, 5 years" }, loc: { ar: "الرياض", en: "Riyadh" }, has: { ar: ["توظيف بالجملة", "ATS"], en: ["Volume hiring", "ATS"] }, lacks: { ar: ["خبرة توظيف تقني (أساسي)"], en: ["Tech hiring (must-have)"] }, short: false },
+  { id: "s3", ar: "جود العمري", en: "Joud Alamri", p: "tao", match: 78, title: { ar: "منسقة موارد بشرية، 4 سنوات", en: "HR coordinator, 4 years" }, loc: { ar: "الدمام", en: "Dammam" }, has: { ar: ["جدولة مقابلات", "تهيئة موظفين"], en: ["Interview scheduling", "Onboarding"] }, lacks: { ar: ["الموقع: خارج الرياض (أساسي)"], en: ["Location: outside Riyadh (must-have)"] }, short: false },
+];
+let CONVOS = [
+  { id: "c1", c: "sara", state: "replied", step: 3, on: true, goals: [1, 1, 0], msgs: [["hiro", { ar: "مرحبًا سارة، لدينا فرصة أخصائي استقطاب مواهب في الرياض. هل تناسبك مكالمة قصيرة؟", en: "Hi Sara, we have a Talent Acquisition Officer role in Riyadh. Would a short call suit you?" }], ["cand", { ar: "أهلًا، نعم مهتمة. متى المكالمة؟", en: "Hello, yes I'm interested. When is the call?" }]] },
+  { id: "c2", c: "faisal", state: "interested", step: 2, on: true, goals: [0, 1, 0], msgs: [["hiro", { ar: "شكرًا لقبول الطلب يا فيصل. هل ترسل سيرتك المحدّثة؟", en: "Thanks for connecting, Faisal. Could you send your updated resume?" }], ["cand", { ar: "أكيد، أرسلها الليلة.", en: "Sure, I'll send it tonight." }]] },
+  { id: "c3", c: "khalid", state: "accepted", step: 1, on: false, goals: [0, 0, 0], msgs: [["hiro", { ar: "مرحبًا خالد، أتواصل معك بخصوص فرصة أخصائي تهيئة موظفين.", en: "Hi Khalid, I'm reaching out about an Onboarding Specialist role." }]] },
+];
+const REACH_STEPS = [{ ar: "الرسالة الأولى", en: "First message" }, { ar: "طلب السيرة", en: "Resume request" }, { ar: "انتظار الفرز", en: "Awaiting screening" }, { ar: "تسليم للفريق", en: "Hand-off to team" }];
+const GOALS = [{ ar: "السيرة الذاتية", en: "Resume" }, { ar: "رقم الجوال", en: "Mobile number" }, { ar: "الراتب المتوقع", en: "Salary expectation" }];
+const CONVO_STATE = { accepted: [{ ar: "قبِل طلب التواصل", en: "Accepted connection" }, "muted"], replied: [{ ar: "ردّ على الرسالة", en: "Replied" }, "warn"], interested: [{ ar: "مهتم بالوظيفة", en: "Interested" }, "good"] };
+let CALLS = [
+  { id: "v1", c: "yousef", status: "completed", outcome: "consider", when: { ar: "قبل 4 ساعات", en: "4 hours ago" }, len: "12:40", voice: "Abdullah", sum: { ar: ["متاح خلال 30 يومًا", "الراتب المتوقع ضمن النطاق", "خبرة تهيئة 5 سنوات في قطاع التجزئة"], en: ["Available within 30 days", "Salary expectation within range", "5 years of onboarding in retail"] } },
+  { id: "v2", c: "layan", status: "completed", outcome: "reject", when: { ar: "أمس", en: "Yesterday" }, len: "07:15", voice: "Sara", sum: { ar: ["سنتان من الخبرة، والمطلوب خمس", "تقيم خارج المملكة"], en: ["Two years of experience, five required", "Based outside the Kingdom"] } },
+  { id: "v3", c: "khalid", status: "noAnswer", when: { ar: "قبل يومين", en: "2 days ago" } },
+];
+let RECS = [
+  { id: "r1", c: "faisal", type: "screening", act: "call", why: { ar: "المحادثة نشطة والملف يتجاوز حد المطابقة. اتصل ما دام اهتمامه قائمًا.", en: "The conversation is active and the profile meets the threshold. Call while the interest is current." } },
+  { id: "r2", c: "noura", type: "contact", act: "connect", why: { ar: "مطابقة قوية ولا يوجد تواصل مسجَّل معها بعد.", en: "Strong match with no outreach recorded yet." } },
+  { id: "r3", c: "sara", type: "screening", act: "screen", why: { ar: "ردّت على الرسالة وما زالت تنتظر خطوة الفرز.", en: "She replied to the message and is still waiting for screening." } },
+  { id: "r4", c: "khalid", type: "hold", act: "hold", why: { ar: "لم يرد منذ 9 أيام. المتابعة الآن لن تضيف شيئًا.", en: "No reply for 9 days. Following up now adds nothing." } },
+  { id: "r5", c: "layan", type: "reject", act: "reject", why: { ar: "لا تستوفي متطلبين أساسيين: سنوات الخبرة والموقع.", en: "Misses two must-haves: years of experience and location." } },
+];
+const ACT = {
+  call: [{ ar: "اتصل الآن", en: "Call now" }, (n) => t(`بدأ الاتصال بـ${n}.`, `Calling ${n}.`)],
+  connect: [{ ar: "أرسل طلب تواصل", en: "Send connection request" }, (n) => t(`أُرسل طلب التواصل إلى ${n}.`, `Connection request sent to ${n}.`)],
+  screen: [{ ar: "ابدأ مكالمة فرز", en: "Start screening call" }],
+  interview: [{ ar: "انقل إلى المقابلة", en: "Move to interview" }, (n) => t(`نُقل ${n} إلى مرحلة المقابلة.`, `${n} moved to interview.`)],
+  hold: [{ ar: "أجّل أسبوعًا", en: "Hold for a week" }, (n) => t(`أُجّلت متابعة ${n} أسبوعًا.`, `Follow-up with ${n} held for a week.`)],
+  reject: [{ ar: "ارفض المرشح", en: "Reject candidate" }, (n) => t(`رُفض ${n}. يمكنك إعادته من القائمة المختصرة.`, `${n} rejected. You can restore them from the shortlist.`)],
+};
+const ANSWERS = {
+  top: { q: { ar: "أبرز المرشحين", en: "Top candidates" }, steps: [{ ar: "راجعت 4 مشاريع", en: "Checked 4 projects" }, { ar: "رتّبت 139 مرشحًا بحسب المطابقة", en: "Ranked 139 candidates by match" }], text: { ar: "أعلى ثلاثة: سارة المطيري 86%، ريم الحربي 83%، يوسف العتيبي 81%.", en: "Top three: Sara Almutairi 86%, Reem Alharbi 83%, Yousef Alotaibi 81%." } },
+  ready: { q: { ar: "الجاهزون للتعيين", en: "Ready to hire" }, steps: [{ ar: "راجعت نتائج 3 مكالمات فرز", en: "Checked 3 screening results" }], text: { ar: "لا يوجد مرشح جاهز للعرض بعد. يوسف العتيبي الأقرب: أنهى الفرز الأولي بنتيجة «يُنظر فيه».", en: "No one is ready for an offer yet. Yousef Alotaibi is closest: first screening ended with Consider." } },
+  pipe: { q: { ar: "ملخص المسار", en: "Pipeline summary" }, steps: [{ ar: "جمعت مراحل كل المشاريع لآخر 30 يومًا", en: "Totalled stages across all projects for 30 days" }], text: { ar: "139 في القائمة المختصرة، 39 تم التواصل معهم، 27 أرسلوا السيرة، و3 تعيينات.", en: "139 shortlisted, 39 contacted, 27 sent a resume, and 3 hired." } },
+  gaps: { q: { ar: "فجوات المهارات", en: "Skill gaps" }, steps: [{ ar: "قارنت متطلبات مطوّر بلوك تشين بـ25 ملفًا", en: "Compared the Blockchain Developer brief with 25 profiles" }], text: { ar: "خبرة Solidity ظهرت عند 4 من 25 مرشحًا فقط.", en: "Solidity experience appears in only 4 of 25 profiles." }, missing: { ar: "الراتب المتوقع غير مسجَّل لـ9 مرشحين، فلم أُدخله في المقارنة.", en: "Salary expectation is not recorded for 9 candidates, so it is left out of the comparison." } },
+  free: { steps: [], text: { ar: "هذا نموذج ببيانات تجريبية ويجيب عن الأسئلة الأربعة الجاهزة فقط.", en: "This prototype runs on sample data and only answers the four starter questions." } },
+};
+const ACTIVITY = [
+  ["voice", { ar: "اكتملت مكالمة فرز يوسف العتيبي", en: "Screening call with Yousef Alotaibi completed" }, { ar: "قبل 4 ساعات", en: "4 hours ago" }],
+  ["reach", { ar: "رسالة جديدة من سارة المطيري", en: "New message from Sara Almutairi" }, { ar: "قبل 6 ساعات", en: "6 hours ago" }],
+  ["seek", { ar: "24 مرشحًا مقيَّمًا لمشروع أخصائي استقطاب مواهب", en: "24 candidates scored for Talent Acquisition Officer" }, { ar: "أمس", en: "Yesterday" }],
+  ["next", { ar: "5 توصيات جديدة بانتظار قرارك", en: "5 new recommendations need your decision" }, { ar: "أمس", en: "Yesterday" }],
+];
+let SAVED = [{ ar: "هدى الزهراني", en: "Huda Alzahrani", title: { ar: "أخصائية استقطاب، الرياض", en: "Talent acquisition, Riyadh" } }];
+const NAV = [
+  ["dashboard", { ar: "لوحة التحكم", en: "Dashboard" }], ["projects", { ar: "المشاريع", en: "Projects" }], ["shortlist", { ar: "القائمة المختصرة", en: "Shortlist" }],
+  ["seek"], ["reach"], ["voice"], ["next"], ["brain"],
+  ["enrichment", { ar: "بيانات التواصل", en: "Contact enrichment" }], ["analytics", { ar: "التحليلات", en: "Analytics" }],
+  ["billing", { ar: "الاشتراك والمدفوعات", en: "Subscription and billing" }],
+];
+/* Plan names, prices and features are from nexhiro.ai (monthly, SAR). Usage numbers and invoices are sample data. */
+const PLANS = [
+  { id: "hiro", name: "Hiro", price: 399, roles: 3, voice: 100, unlocks: 50, who: { ar: "لمسؤول توظيف واحد", en: "For individual recruiters" }, feats: { ar: ["3 أدوار نشطة بالتوازي", "الوكلاء الخمسة كلهم", "بيانات تواصل موثّقة"], en: ["3 active roles in parallel", "All five Hiro modes", "Verified contact details"] } },
+  { id: "plus", name: "Hiro Plus", price: 699, roles: 5, voice: 200, unlocks: 125, who: { ar: "لفرق تدير عدة أدوار معًا", en: "For teams running parallel hiring" }, feats: { ar: ["5 أدوار نشطة بالتوازي", "حتى ضعف استخدام Hiro", "2.5 ضعف فتح بيانات التواصل", "دقائق فرز صوتي أكثر"], en: ["5 active roles in parallel", "Up to 2x the usage of Hiro", "2.5x more contact unlocks", "More Voice screening minutes"] } },
+  { id: "max", name: "Hiro Max", price: 1699, roles: 20, voice: 1000, unlocks: 500, who: { ar: "للوكالات والتوظيف بأعداد كبيرة", en: "For agencies and high-volume teams" }, feats: { ar: ["20 دورًا نشطًا", "حتى 6 أضعاف استخدام Hiro", "استخدام غير محدود لـ Brain", "10 أضعاف دقائق الفرز الصوتي", "أولوية في أوقات الذروة"], en: ["20 active roles", "Up to 6x the usage of Hiro", "Unlimited Brain usage", "10x Voice screening minutes", "Priority access at peak times"] } },
+];
+const INVOICES = [["INV-2026-0111", { ar: "1 نوفمبر 2026", en: "1 Nov 2026" }], ["INV-2026-0098", { ar: "1 أكتوبر 2026", en: "1 Oct 2026" }], ["INV-2026-0084", { ar: "1 سبتمبر 2026", en: "1 Sep 2026" }]];
+const fmt = (n) => n.toLocaleString("en-US", { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+const sar = (n) => `${num(fmt(n))} ${t("ر.س", "SAR")}`;
+const plan = (id) => PLANS.find((p) => p.id === (id || S.plan));
+const activeRoles = () => Object.values(P).filter((p) => p.status === "active").length;
+const chargeDate = () => t("1 ديسمبر 2026", "1 Dec 2026");
+const navLabel = ([id, l]) => (l ? L(l) : agentName(id));
+
+/* ---------- Building blocks ---------- */
+const FOCUS = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+const BTN = `inline-flex min-h-11 items-center justify-center gap-2 px-5 text-sm font-medium transition-colors ${FOCUS}`;
+const BTN_PRIMARY = `${BTN} rounded-full bg-brand text-onbrand hover:bg-brand/90`;
+const BTN_QUIET = `${BTN} rounded-full border border-line bg-surface text-ink hover:bg-sunken`;
+const BTN_DANGER = `${BTN} rounded-full border border-bad text-bad hover:bg-bad/10`;
+const CELL = "rounded-3xl border border-line/70 bg-surface p-5 shadow-card sm:p-6";
+const INPUT = `min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm text-ink ${FOCUS}`;
+const H2 = "font-display text-lg font-semibold text-ink";
+const TONES = { good: "bg-good/10 text-good", warn: "bg-warn/10 text-warn", bad: "bg-bad/10 text-bad", muted: "bg-sunken text-muted" };
+const pill = (text, tone = "muted", dot = false) =>
+  `<span class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${TONES[tone]}">${dot ? `<span class="h-1.5 w-1.5 rounded-full bg-current motion-safe:animate-pulse"></span>` : ""}${text}</span>`;
+const avatar = (c) => `<span aria-hidden="true" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand">${c.en.split(" ").map((w) => w[0]).slice(0, 2).join("")}</span>`;
+const matchBar = (v, label) => {
+  const tone = v >= 75 ? "bg-good" : v >= 60 ? "bg-warn" : "bg-bad";
+  return `<div class="flex items-center gap-3"><div class="h-1.5 flex-1 overflow-hidden rounded-full bg-sunken" role="img" aria-label="${label} ${v}%"><div class="h-full rounded-full ${tone}" style="width:${v}%"></div></div><span class="w-12 text-end text-sm font-semibold text-ink">${num(v + "%")}</span></div>`;
+};
+const ring = (v) => {
+  const c = 2 * Math.PI * 20, tone = v >= 75 ? "text-good" : v >= 60 ? "text-warn" : "text-bad";
+  return `<span class="relative inline-flex h-14 w-14 shrink-0 items-center justify-center" role="img" aria-label="${t("متوسط المطابقة", "Average match")} ${v}%"><svg viewBox="0 0 48 48" class="absolute inset-0 -rotate-90 ${tone}"><circle cx="24" cy="24" r="20" fill="none" stroke="rgb(var(--sunken))" stroke-width="5"/><circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - v / 100)}"/></svg><span class="text-xs font-semibold text-ink">${num(v + "%")}</span></span>`;
+};
+const agentBadge = (id, size = "h-10 w-10") => `<span class="flex ${size} shrink-0 items-center justify-center rounded-2xl ${AGENT[id].soft} ${AGENT[id].text}">${icon(id)}</span>`;
+const empty = (text) => `<p class="rounded-2xl border border-dashed border-line p-6 text-sm text-muted">${text}</p>`;
+const sw = (on, act, arg, label, text) =>
+  `<button type="button" role="switch" aria-checked="${on}" aria-label="${label}" data-act="${act}" data-arg="${arg}" class="inline-flex min-h-11 items-center gap-2 rounded-xl px-1 text-sm text-ink ${FOCUS}"><span class="flex h-6 w-10 items-center rounded-full p-0.5 ${on ? "justify-end bg-brand" : "justify-start bg-muted/40"}"><span class="h-5 w-5 rounded-full bg-surface"></span></span>${text}</button>`;
+const chips = (items, current, act, label) =>
+  `<div role="group" aria-label="${label}" class="flex flex-wrap gap-2">${items.map(([id, text, n]) =>
+    `<button type="button" aria-pressed="${current === id}" data-act="${act}" data-arg="${id}" class="inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-sm font-medium ${FOCUS} ${current === id ? "bg-ink text-surface" : "bg-sunken text-muted hover:text-ink"}">${text}${n != null ? num(n) : ""}</button>`).join("")}</div>`;
+
+/* ---------- Agent panels (shared by dashboard cells and full pages) ---------- */
+function recsPanel() {
+  const shown = S.recFilter === "all" ? RECS : RECS.filter((r) => r.type === S.recFilter);
+  const tabs = [["all", t("الكل", "All")], ["contact", t("تواصل", "Contact")], ["screening", t("فرز", "Screening")], ["hold", t("تأجيل", "Hold")], ["reject", t("رفض", "Reject")]]
+    .map(([id, l]) => [id, l, id === "all" ? RECS.length : RECS.filter((r) => r.type === id).length]);
+  return `<div class="flex flex-col gap-4">
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-reach/10 p-4">
+      <p class="flex items-start gap-2 text-sm text-ink"><span class="mt-0.5 text-reach">${icon("reach", "h-4 w-4")}</span>${t("13 مرشحًا ردّوا وينتظرونك. أقدم رد مضى عليه 35 يومًا.", "13 candidates replied and are waiting. The oldest reply is 35 days old.")}</p>
+      <a href="#reach" class="${BTN_QUIET}">${t("افتح Hiro:Reach", "Open Hiro:Reach")}</a>
+    </div>
+    ${chips(tabs, S.recFilter, "recFilter", t("صفِّ التوصيات", "Filter recommendations"))}
+    ${shown.length === 0 ? empty(RECS.length ? t("لا توصيات في هذا التصنيف. اختر «الكل» لعرض بقية التوصيات.", "No recommendations of this type. Choose All to see the rest.") : t("لا توصيات بانتظارك. كل شيء محدَّث.", "No recommendations waiting. You're up to date.")) :
+    `<ul class="flex flex-col gap-3">${shown.map((r) => { const c = cand(r.c); return `
+      <li class="rounded-2xl bg-sunken/60 p-4">
+        <div class="flex flex-wrap items-start gap-x-4 gap-y-2">${avatar(c)}
+          <div class="min-w-0 flex-1 basis-56"><p class="font-medium text-ink">${L(c)}</p><p class="text-sm text-muted">${L(P[c.p])}</p></div>
+          <p class="text-sm text-muted"><span class="text-base font-semibold text-ink">${num(c.match + "%")}</span> ${t("مطابقة", "match")}</p>
+        </div>
+        <p class="mt-3 max-w-prose text-sm text-ink"><span class="font-medium text-muted">${t("السبب", "Why")}: </span>${L(r.why)}</p>
+        <div class="mt-4 flex flex-wrap justify-end gap-2">
+          <button type="button" class="${BTN_QUIET}" aria-label="${t("تجاهل توصية", "Dismiss recommendation for")} ${L(c)}" data-act="recDismiss" data-arg="${r.id}">${t("تجاهل", "Dismiss")}</button>
+          <button type="button" class="${r.act === "reject" ? BTN_DANGER : BTN_PRIMARY}" aria-label="${L(ACT[r.act][0])}: ${L(c)}" data-act="rec" data-arg="${r.id}">${L(ACT[r.act][0])}</button>
+        </div>
+      </li>`; }).join("")}</ul>`}
+  </div>`;
+}
+function seekRuns() {
+  return `<ul class="grid gap-3 sm:grid-cols-2">${Object.values(P).map((p) => `
+    <li class="rounded-2xl bg-sunken/60 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="min-w-0"><p class="font-medium text-ink">${L(p)}</p><p class="mt-1 text-sm text-muted">${num(p.sourced)} ${t("تم العثور عليهم", "sourced")}${sep()}${num(p.short)} ${t("في القائمة المختصرة", "shortlisted")}</p></div>
+        ${p.status === "active" ? pill(t("يبحث الآن", "Searching now"), "good", true) : pill(t("متوقف", "Paused"))}
+      </div>
+      <div class="mt-3">${matchBar(p.match, t("متوسط المطابقة", "Average match"))}</div>
+      ${p.match < 60 ? `<div class="mt-3 flex flex-col gap-3 rounded-xl bg-warn/10 p-3"><p class="flex items-start gap-2 text-sm text-ink"><span class="mt-0.5 text-warn">${icon("alert", "h-4 w-4")}</span>${t("النتائج بعيدة عن الاحتياج. راجع الفرق بين المتطلبات الأساسية والتفضيلات ثم عدّل البحث.", "Results are far from the brief. Compare must-haves with preferences, then adjust the search.")}</p><button type="button" class="${BTN_QUIET} self-end" data-act="proto" data-arg="${p.id}">${t("عدّل البحث", "Adjust search")}</button></div>`
+        : `<div class="mt-3 flex justify-end"><button type="button" class="${BTN_QUIET}" data-act="seekProject" data-arg="${p.id}">${t("راجع النتائج", "Review results")}</button></div>`}
+    </li>`).join("")}</ul>`;
+}
+function convoList(selectable) {
+  return `<ul class="flex flex-col gap-2">${CONVOS.map((cv) => { const c = cand(cv.c), st = CONVO_STATE[cv.state], sel = selectable && S.selConvo === cv.id; return `
+    <li class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl p-3 ${sel ? "bg-brand-soft" : "bg-sunken/60"}">
+      ${avatar(c)}
+      <div class="min-w-0 flex-1 basis-44"><p class="font-medium text-ink">${L(c)}</p><p class="text-sm text-muted">${t("الخطوة", "Step")} ${num(cv.step)} ${t("من", "of")} ${num(4)}: ${L(REACH_STEPS[cv.step - 1])}</p></div>
+      ${pill(L(st[0]), st[1])}
+      ${selectable ? `<button type="button" class="${BTN_QUIET}" aria-pressed="${sel}" aria-label="${t("افتح محادثة", "Open conversation with")} ${L(c)}" data-act="selConvo" data-arg="${cv.id}">${t("افتح", "Open")}</button>`
+        : sw(cv.on, "replies", cv.id, `${t("ردود هيرو في محادثة", "Hiro replies in the conversation with")} ${L(c)}`, t("ردود هيرو", "Hiro replies"))}
+    </li>`; }).join("")}</ul>`;
+}
+function callList(selectable) {
+  const ST = { completed: [t("اكتملت", "Completed"), "good"], noAnswer: [t("لم يرد", "No answer"), "bad"], scheduled: [t("في قائمة الانتظار", "Queued"), "muted"] };
+  return `<ul class="flex flex-col gap-2">${CALLS.map((v) => { const c = cand(v.c), sel = selectable && S.selCall === v.id; return `
+    <li class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl p-3 ${sel ? "bg-brand-soft" : "bg-sunken/60"}">
+      ${avatar(c)}
+      <div class="min-w-0 flex-1 basis-44"><p class="font-medium text-ink">${L(c)}</p><p class="text-sm text-muted">${L(P[c.p])}${sep()}${L(v.when)}</p>
+        ${v.status === "noAnswer" ? `<p class="mt-1 text-sm text-muted">${t("محاولة اتصال، لم يكتمل الفرز", "Call attempt, screening not completed")}</p>` : ""}
+        ${v.outcome ? `<p class="mt-1 text-sm text-ink">${t("نتيجة الفرز", "Screening result")}: ${v.outcome === "consider" ? t("يُنظر فيه", "Consider") : t("رفض", "Reject")}</p>` : ""}</div>
+      ${pill(...ST[v.status])}
+      ${v.status === "noAnswer" ? `<button type="button" class="${BTN_QUIET}" aria-label="${t("أعد الاتصال بـ", "Call again:")} ${L(c)}" data-act="dlg" data-arg="screening:${c.id}">${t("أعد المحاولة", "Try again")}</button>`
+        : v.status === "completed" ? (selectable ? `<button type="button" class="${BTN_QUIET}" aria-pressed="${sel}" aria-label="${t("راجع مكالمة", "Review call with")} ${L(c)}" data-act="selCall" data-arg="${v.id}">${t("راجع", "Review")}</button>` : `<a href="#voice" class="${BTN_QUIET}">${t("راجع المكالمة", "Review call")}</a>`) : ""}
+    </li>`; }).join("")}</ul>`;
+}
+function brainPanel() {
+  const a = S.answer && ANSWERS[S.answer.key];
+  return `<div class="flex flex-col gap-5">
+    <form id="brainForm" class="flex flex-col gap-2">
+      <label for="brainQ" class="text-sm font-medium text-ink">${t("اسأل هيرو عن مرشحيك أو مشاريعك", "Ask Hiro about your candidates or projects")}</label>
+      <div class="flex flex-wrap gap-2"><input id="brainQ" data-model="brainQ" value="${esc(S.brainQ)}" class="${INPUT} flex-1 basis-64" placeholder="${t("مثال: من أنهى الفرز الأولي في مشروع أخصائي استقطاب مواهب؟", "Example: who finished first screening in Talent Acquisition Officer?")}">
+      <button type="submit" class="${BTN_PRIMARY}">${t("أرسل السؤال", "Send question")}</button></div>
+    </form>
+    <div><p class="mb-2 text-sm text-muted">${t("أسئلة جاهزة", "Starter questions")}</p>
+      <div class="flex flex-wrap gap-2">${["top", "ready", "pipe", "gaps"].map((k) => `<button type="button" class="${BTN_QUIET}" data-act="ask" data-arg="${k}">${L(ANSWERS[k].q)}</button>`).join("")}</div></div>
+    <div aria-live="polite" class="min-h-24">${a ? `
+      <div class="rounded-2xl bg-sunken/60 p-4">
+        <p class="text-sm text-muted">${esc(S.answer.q)}</p>
+        ${a.steps.length ? `<p class="mt-3 text-xs font-medium text-muted">${t("ما راجعه هيرو", "What Hiro checked")}</p><ul class="mt-1 flex flex-col gap-1">${a.steps.map((s) => `<li class="flex items-center gap-2 text-sm text-muted"><span class="text-good">${icon("check", "h-4 w-4")}</span>${L(s)}</li>`).join("")}</ul>` : ""}
+        <p class="mt-3 max-w-prose text-ink">${L(a.text)}</p>
+        ${a.missing ? `<p class="mt-3 flex max-w-prose items-start gap-2 rounded-xl bg-warn/10 p-3 text-sm text-ink"><span class="mt-0.5 text-warn">${icon("alert", "h-4 w-4")}</span><span><span class="font-medium">${t("بيانات ناقصة", "Missing data")}: </span>${L(a.missing)}</span></p>` : ""}
+      </div>` : empty(t("اكتب سؤالك أو اختر سؤالًا جاهزًا. اذكر اسم المشروع لتحصل على إجابة أدق.", "Type a question or pick a starter. Name the project for a sharper answer."))}</div>
+  </div>`;
+}
+
+/* ---------- Charts ---------- */
+function funnelCell() {
+  const f = STATS[S.period].funnel, labels = [t("القائمة المختصرة", "Shortlisted"), t("تم التواصل", "Contacted"), t("استلام السيرة", "Resume received"), t("التعيين", "Hired")];
+  const colors = ["bg-seek", "bg-reach", "bg-voice", "bg-next"];
+  return `<section class="${CELL}" aria-labelledby="funnel-h"><h2 id="funnel-h" class="${H2}">${t("كم مرشحًا وصل إلى كل مرحلة؟", "How many candidates reached each stage?")}</h2>
+    <p class="mt-1 text-sm text-muted">${periodLabel()}</p>
+    <ol class="mt-5 flex flex-col gap-4">${f.map((v, i) => `<li><div class="flex items-baseline justify-between gap-3 text-sm"><span class="text-ink">${labels[i]}</span><span class="font-semibold text-ink">${num(v)}</span></div>
+      <div class="mt-1.5 h-2 rounded-full bg-sunken"><div class="h-full rounded-full ${colors[i]}" style="width:${Math.max(2, (v / f[0]) * 100)}%"></div></div>
+      ${i ? `<p class="mt-1 text-xs text-muted">${num(Math.round((v / f[i - 1]) * 100) + "%")} ${t("من المرحلة السابقة", "of the previous stage")}</p>` : ""}</li>`).join("")}</ol></section>`;
+}
+const periodLabel = () => `${S.period === 7 ? t("آخر 7 أيام", "Last 7 days") : t("آخر 30 يومًا", "Last 30 days")}${sep()}${t("حتى 18 نوفمبر، 10:42", "as of 18 Nov, 10:42")}`;
+function lineChart() {
+  const st = STATS[S.period], data = st.series, labels = L(st.labels), max = S.period === 7 ? 10 : 50;
+  const W = 560, H = 230, l = 40, r = 16, top = 22, b = 30, x = (i) => l + (i * (W - l - r)) / (data.length - 1), y = (v) => top + (1 - v / max) * (H - top - b);
+  const pts = data.map((v, i) => `${x(i)},${y(v)}`).join(" ");
+  const total = data.reduce((a, c) => a + c, 0), hi = Math.max(...data), hiL = labels[data.indexOf(hi)];
+  const unit = S.period === 7 ? t("اليوم", "Day") : t("الأسبوع", "Week");
+  return `<section class="${CELL}" aria-labelledby="line-h">
+    <div class="flex flex-wrap items-start justify-between gap-3"><div><h2 id="line-h" class="${H2}">${S.period === 7 ? t("كم مرشحًا أُضيف إلى القائمة المختصرة كل يوم؟", "How many candidates were shortlisted each day?") : t("كم مرشحًا أُضيف إلى القائمة المختصرة كل أسبوع؟", "How many candidates were shortlisted each week?")}</h2><p class="mt-1 text-sm text-muted">${periodLabel()}</p></div>
+      <button type="button" class="${BTN_QUIET}" aria-pressed="${S.chartTable}" data-act="chartTable">${icon("table", "h-4 w-4")}${S.chartTable ? t("اعرض الرسم", "Show chart") : t("اعرض الجدول", "Show table")}</button></div>
+    <p class="mt-3 text-sm text-ink">${t(`المجموع ${total} مرشحًا، والأعلى ${hi} في ${hiL}.`, `${total} in total, peaking at ${hi} on ${hiL}.`)}</p>
+    ${S.chartTable ? `<div class="mt-4 overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-muted"><th scope="col" class="py-2 text-start font-medium">${unit}</th><th scope="col" class="py-2 text-end font-medium">${t("المرشحون", "Candidates")}</th></tr></thead><tbody>${data.map((v, i) => `<tr class="border-t border-line"><td class="py-2 text-ink">${labels[i]}</td><td class="py-2 text-end text-ink">${num(v)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<div class="mt-4" dir="ltr"><svg viewBox="0 0 ${W} ${H}" class="h-auto w-full" role="img" aria-label="${t("رسم خطي لعدد المضافين إلى القائمة المختصرة", "Line chart of candidates shortlisted")}">
+        ${[0, max / 2, max].map((v) => `<line x1="${l}" x2="${W - r}" y1="${y(v)}" y2="${y(v)}" stroke="rgb(var(--line))" stroke-width="1"/><text x="${l - 8}" y="${y(v) + 4}" text-anchor="end" font-size="12" fill="rgb(var(--muted))">${v}</text>`).join("")}
+        <polygon points="${l},${y(0)} ${pts} ${W - r},${y(0)}" fill="rgb(var(--seek) / 0.10)"/>
+        <polyline points="${pts}" fill="none" stroke="rgb(var(--seek))" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        ${data.map((v, i) => `<g tabindex="0" class="focus:outline-none [&:focus-visible>circle]:stroke-[rgb(var(--ink))]"><title>${labels[i]}: ${v} ${t("مرشحًا", "candidates")}</title><circle cx="${x(i)}" cy="${y(v)}" r="5" fill="rgb(var(--surface))" stroke="rgb(var(--seek))" stroke-width="2.5"/><text x="${x(i)}" y="${y(v) - 11}" text-anchor="middle" font-size="12" font-weight="600" fill="rgb(var(--ink))">${v}</text><text x="${x(i)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : i === data.length - 1 ? "end" : "middle"}" font-size="12" fill="rgb(var(--muted))">${labels[i]}</text></g>`).join("")}
+      </svg></div>`}
+  </section>`;
+}
+
+/* ---------- Views ---------- */
+function railStats() {
+  const s = STATS[S.period];
+  return {
+    seek: [s.seek, t("مرشحًا جديدًا مقيَّمًا", "new candidates scored"), "working"], reach: [s.reach, t("ردًّا بانتظار مراجعتك", "replies waiting for you"), "needs"],
+    voice: [s.voice, t("مكالمات مكتملة", "calls completed"), CALLS.some((c) => c.status === "scheduled") ? "working" : "idle"],
+    next: [RECS.length, t("توصيات بانتظار قرارك", "recommendations to decide"), RECS.length ? "needs" : "idle"], brain: [null, t("اسأل عن مرشحيك ومشاريعك", "Ask about candidates and projects"), "ready"],
+  };
+}
+const STATUS = { working: [{ ar: "يعمل الآن", en: "Working now" }, "good", true], needs: [{ ar: "بانتظارك", en: "Needs you" }, "warn"], idle: [{ ar: "متوقف", en: "Idle" }, "muted"], ready: [{ ar: "جاهز", en: "Ready" }, "muted"] };
+function viewDashboard() {
+  const rs = railStats(), cur = S.dashAgent;
+  const panel = { seek: seekRuns, reach: () => `<p class="mb-4 max-w-prose text-sm text-muted">${t("قبول الطلب، الرد، والاهتمام ثلاث حالات مختلفة، ولكل واحدة خطوة تالية.", "Accepting a request, replying, and showing interest are three different states, each with its own next step.")}</p>${convoList(false)}`,
+    voice: () => `<div class="mb-4 flex flex-wrap items-center justify-between gap-3"><p class="max-w-prose text-sm text-muted">${t("النتيجة اقتراح من هيرو. راجع الملخص قبل أن تقرر.", "The result is Hiro's suggestion. Read the summary before you decide.")}</p><button type="button" class="${BTN_PRIMARY}" data-act="dlg" data-arg="screening:sara">${icon("voice", "h-4 w-4")}${t("ابدأ مكالمة فرز", "Start screening call")}</button></div>${callList(false)}`,
+    next: recsPanel, brain: brainPanel }[cur]();
+  return `
+  <div role="tablist" aria-label="${t("وكلاء هيرو الخمسة", "The five Hiro agents")}" class="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 pt-1 xl:grid xl:grid-cols-5 xl:overflow-visible">
+    ${AGENTS.map((a) => { const [n, label, st] = rs[a.id], sel = cur === a.id; return `
+    <button type="button" role="tab" id="tab-${a.id}" aria-selected="${sel}" aria-controls="agent-panel" tabindex="${sel ? 0 : -1}" data-act="dashAgent" data-arg="${a.id}"
+      class="flex min-w-52 flex-col gap-3 rounded-3xl border-2 p-4 text-start transition-colors ${FOCUS} ${sel ? `${a.border} bg-surface shadow-card` : "border-transparent bg-surface/60 hover:bg-surface"}">
+      <span class="flex items-center justify-between gap-2">${agentBadge(a.id)}${pill(L(STATUS[st][0]), STATUS[st][1], STATUS[st][2])}</span>
+      <span><span class="block font-display font-semibold text-ink">${agentName(a.id)}</span><span class="block text-sm text-muted">${L(a.role)}</span></span>
+      <span class="text-sm text-muted">${n != null ? `<span class="font-display text-2xl font-semibold text-ink">${num(n)}</span> ` : ""}${label}</span>
+    </button>`; }).join("")}
+  </div>
+  <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
+    <section id="agent-panel" role="tabpanel" aria-labelledby="tab-${cur}" tabindex="0" class="${CELL} lg:col-span-8 lg:row-span-2 ${FOCUS}">
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">${agentBadge(cur)}<div><h2 class="${H2}">${agentName(cur)}</h2><p class="text-sm text-muted">${L(AGENT[cur].role)}</p></div></div>
+        <a href="#${cur}" class="${BTN_QUIET}">${t("افتح الصفحة الكاملة", "Open full page")}${icon("chevron", "h-4 w-4", true)}</a>
+      </div>${panel}
+    </section>
+    <div class="lg:col-span-4">${funnelCell()}</div>
+    <section class="${CELL} lg:col-span-4" aria-labelledby="act-h"><h2 id="act-h" class="${H2}">${t("النشاط الأخير", "Recent activity")}</h2>
+      <ul class="mt-4 flex flex-col gap-4">${ACTIVITY.map(([a, text, when]) => `<li class="flex items-start gap-3">${agentBadge(a, "h-8 w-8")}<div class="min-w-0"><p class="text-sm text-ink">${L(text)}</p><p class="text-xs text-muted">${agentName(a)}${sep()}${L(when)}</p></div></li>`).join("")}</ul></section>
+    <section class="${CELL} lg:col-span-7" aria-labelledby="proj-h"><div class="flex items-center justify-between gap-3"><h2 id="proj-h" class="${H2}">${t("مشاريعك النشطة", "Your active projects")}</h2><a href="#projects" class="text-sm font-medium text-brand underline underline-offset-4 ${FOCUS}">${t("كل المشاريع", "All projects")}</a></div>
+      <ul class="mt-4 grid gap-3 sm:grid-cols-3">${Object.values(P).filter((p) => p.status === "active").map((p) => `<li class="flex flex-col gap-3 rounded-2xl bg-sunken/60 p-4"><div class="flex items-start justify-between gap-2"><p class="font-medium text-ink">${L(p)}</p>${ring(p.match)}</div><p class="text-sm text-muted">${L(p.meta)}</p><p class="text-sm text-ink">${num(p.short)} ${t("في القائمة المختصرة", "shortlisted")}</p></li>`).join("")}</ul></section>
+    <section class="${CELL} lg:col-span-5" aria-labelledby="top-h"><div class="flex items-center justify-between gap-3"><h2 id="top-h" class="${H2}">${t("أبرز المرشحين", "Top candidates")}</h2><a href="#shortlist" class="text-sm font-medium text-brand underline underline-offset-4 ${FOCUS}">${t("القائمة المختصرة", "Shortlist")}</a></div>
+      <ul class="mt-4 flex flex-col gap-4">${[...CANDS].filter((c) => c.stage !== "rejected").sort((a, b) => b.match - a.match).slice(0, 4).map((c) => `<li><div class="flex items-baseline justify-between gap-3"><p class="font-medium text-ink">${L(c)}</p><p class="text-sm text-muted">${L(P[c.p])}</p></div><div class="mt-1.5">${matchBar(c.match, t("المطابقة", "Match"))}</div></li>`).join("")}</ul></section>
+  </div>`;
+}
+function viewProjects() {
+  const list = Object.values(P).filter((p) => S.projFilter === "all" || p.status === S.projFilter);
+  return `<div class="flex flex-wrap items-center justify-between gap-3">
+    ${chips([["all", t("الكل", "All"), Object.keys(P).length], ["active", t("نشط", "Active")], ["paused", t("متوقف", "Paused")]], S.projFilter, "projFilter", t("صفِّ المشاريع بالحالة", "Filter projects by status"))}
+    <button type="button" class="${BTN_PRIMARY}" data-act="dlg" data-arg="project">${icon("plus", "h-4 w-4")}${t("أنشئ مشروعًا", "Create project")}</button></div>
+  <ul class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">${list.map((p) => `
+    <li class="${CELL} flex flex-col gap-4"><div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="${H2}">${L(p)}</h2><p class="mt-1 text-sm text-muted">${L(p.meta)}</p></div>${ring(p.match)}</div>
+      <dl class="grid grid-cols-3 gap-3 rounded-2xl bg-sunken/60 p-3 text-center">${[[p.sourced, t("بحث", "Sourced")], [p.short, t("مختصرة", "Shortlisted")], [p.match + "%", t("مطابقة", "Match")]].map(([v, l]) => `<div><dd class="font-display text-xl font-semibold text-ink">${num(v)}</dd><dt class="text-xs text-muted">${l}</dt></div>`).join("")}</dl>
+      <div class="flex flex-wrap items-center justify-between gap-2">${p.status === "active" ? pill(t("هيرو يعمل عليه", "Hiro is working"), "good", true) : pill(t("متوقف", "Paused"))}
+        ${sw(p.status === "active", "projToggle", p.id, `${t("تشغيل هيرو في مشروع", "Run Hiro on")} ${L(p)}`, t("تشغيل", "Running"))}</div>
+    </li>`).join("")}</ul>
+  ${list.length ? "" : `<div class="mt-6">${empty(t("لا مشاريع بهذه الحالة. اختر «الكل» أو أنشئ مشروعًا.", "No projects with this status. Choose All or create a project."))}</div>`}`;
+}
+function viewShortlist() {
+  const q = S.q.trim().toLowerCase();
+  let list = CANDS.filter((c) => (S.fProject === "all" || c.p === S.fProject) && (S.fStage === "all" || c.stage === S.fStage) && (!q || c.ar.includes(q) || c.en.toLowerCase().includes(q)));
+  list = [...list].sort((a, b) => (S.sort === "score" ? b.match - a.match : S.sort === "exp" ? b.exp - a.exp : L(a).localeCompare(L(b))));
+  const opt = (v, l, cur) => `<option value="${v}" ${cur === v ? "selected" : ""}>${l}</option>`;
+  const filtered = q || S.fProject !== "all" || S.fStage !== "all";
+  return `<div class="${CELL}">
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="flex flex-col gap-1.5"><label for="q" class="text-sm font-medium">${t("ابحث بالاسم", "Search by name")}</label><input id="q" data-model="q" data-live="1" value="${esc(S.q)}" class="${INPUT}" autocomplete="off"></div>
+      <div class="flex flex-col gap-1.5"><label for="fProject" class="text-sm font-medium">${t("المشروع", "Project")}</label><select id="fProject" data-model="fProject" data-live="1" class="${INPUT}">${opt("all", t("كل المشاريع", "All projects"), S.fProject)}${Object.values(P).map((p) => opt(p.id, L(p), S.fProject)).join("")}</select></div>
+      <div class="flex flex-col gap-1.5"><label for="fStage" class="text-sm font-medium">${t("المرحلة", "Stage")}</label><select id="fStage" data-model="fStage" data-live="1" class="${INPUT}">${opt("all", t("كل المراحل", "All stages"), S.fStage)}${Object.entries(STAGES).map(([k, s]) => opt(k, L(s), S.fStage)).join("")}</select></div>
+      <div class="flex flex-col gap-1.5"><label for="sort" class="text-sm font-medium">${t("الترتيب", "Sort")}</label><select id="sort" data-model="sort" data-live="1" class="${INPUT}">${opt("score", t("الأعلى مطابقة", "Best score"), S.sort)}${opt("exp", t("الأكثر خبرة", "Most experience"), S.sort)}${opt("name", t("الاسم", "Name"), S.sort)}</select></div>
+    </div>
+    <p class="mt-4 text-sm text-muted" aria-live="polite">${num(list.length)} ${t("من", "of")} ${num(CANDS.length)} ${t("مرشحين", "candidates")}</p>
+    ${list.length === 0 ? `<div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-line p-6"><p class="text-sm text-muted">${t("لا مرشحين يطابقون هذه الفلاتر.", "No candidates match these filters.")}</p>${filtered ? `<button type="button" class="${BTN_QUIET}" data-act="clearFilters">${t("امسح الفلاتر", "Clear filters")}</button>` : ""}</div>` : `
+    <div class="mt-4 overflow-x-auto"><table class="w-full min-w-[720px] text-sm">
+      <thead><tr class="text-muted">${[t("المرشح", "Candidate"), t("ملاحظة هيرو", "Hiro insight"), t("المطابقة", "Match"), t("المرحلة", "Stage"), t("الخبرة", "Experience"), t("الخطوة التالية", "Next action")].map((h, i) => `<th scope="col" class="px-2 py-3 font-medium ${i === 5 ? "text-end" : "text-start"}">${h}</th>`).join("")}</tr></thead>
+      <tbody>${list.map((c) => `<tr class="border-t border-line align-middle">
+        <th scope="row" class="px-2 py-3 text-start font-normal"><div class="flex items-center gap-3">${avatar(c)}<div><p class="font-medium text-ink">${L(c)}</p><p class="text-muted">${L(P[c.p])}</p></div></div></th>
+        <td class="max-w-56 px-2 py-3 text-ink">${L(c.insight)}</td>
+        <td class="w-36 px-2 py-3">${matchBar(c.match, t("المطابقة", "Match"))}</td>
+        <td class="px-2 py-3">${pill(L(STAGES[c.stage]), STAGES[c.stage].tone)}</td>
+        <td class="whitespace-nowrap px-2 py-3 text-ink">${num(c.exp)} ${t("سنوات", "years")}</td>
+        <td class="px-2 py-3 text-end">${c.stage === "rejected" ? `<button type="button" class="${BTN_QUIET}" aria-label="${t("أعد للمراجعة:", "Restore to review:")} ${L(c)}" data-act="restore" data-arg="${c.id}">${t("أعد للمراجعة", "Restore")}</button>`
+          : c.next ? `<button type="button" class="${c.next === "reject" ? BTN_DANGER : BTN_QUIET}" aria-label="${L(ACT[c.next][0])}: ${L(c)}" data-act="rowAct" data-arg="${c.id}">${L(ACT[c.next][0])}</button>` : `<span class="text-muted">${t("لا إجراء الآن", "Nothing to do now")}</span>`}</td>
+      </tr>`).join("")}</tbody></table></div>`}
+  </div>`;
+}
+function viewSeek() {
+  const list = SOURCED.filter((s) => s.p === S.seekProject), sel = list.find((s) => s.id === S.selSeek) || list[0];
+  return `<div class="grid grid-cols-1 gap-6 lg:grid-cols-12">
+    <section class="${CELL} lg:col-span-12" aria-labelledby="runs-h"><h2 id="runs-h" class="${H2} mb-4">${t("عمليات البحث", "Search runs")}</h2>${seekRuns()}</section>
+    <section class="${CELL} lg:col-span-7" aria-labelledby="res-h"><h2 id="res-h" class="${H2}">${t("نتائج", "Results for")} ${L(P[S.seekProject])}</h2>
+      <p class="mt-1 text-sm text-muted">${t("مرتّبة بحسب المطابقة مع المتطلبات الأساسية ثم التفضيلات.", "Ranked by must-haves first, then preferences.")}</p>
+      ${list.length ? `<ul class="mt-4 flex flex-col gap-2">${list.map((s) => `<li class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl p-3 ${sel && sel.id === s.id ? "bg-brand-soft" : "bg-sunken/60"}">${avatar(s)}
+        <div class="min-w-0 flex-1 basis-44"><p class="font-medium text-ink">${L(s)}</p><p class="text-sm text-muted">${L(s.title)}${sep()}${L(s.loc)}</p></div>
+        <span class="font-semibold text-ink">${num(s.match + "%")}</span>${s.short ? pill(t("في القائمة المختصرة", "Shortlisted"), "good") : ""}
+        <button type="button" class="${BTN_QUIET}" aria-pressed="${sel && sel.id === s.id}" aria-label="${t("اعرض ملف", "Preview profile of")} ${L(s)}" data-act="selSeek" data-arg="${s.id}">${t("اعرض الملف", "Preview")}</button></li>`).join("")}</ul>`
+      : `<div class="mt-4">${empty(t("لا نتائج لهذا المشروع بعد. هيرو يعرضها هنا حال انتهاء البحث.", "No results for this project yet. Hiro shows them here when the search finishes."))}</div>`}
+    </section>
+    <section class="${CELL} lg:col-span-5" aria-labelledby="prev-h"><h2 id="prev-h" class="${H2}">${t("معاينة الملف", "Profile preview")}</h2>
+      ${sel ? `<div class="mt-4 flex items-center gap-3">${avatar(sel)}<div><p class="font-medium text-ink">${L(sel)}</p><p class="text-sm text-muted">${L(sel.title)}</p></div></div>
+        <div class="mt-4">${matchBar(sel.match, t("المطابقة", "Match"))}</div>
+        <p class="mt-5 text-sm font-medium text-muted">${t("يستوفي", "Meets")}</p><ul class="mt-2 flex flex-col gap-1.5">${L(sel.has).map((h) => `<li class="flex items-center gap-2 text-sm text-ink"><span class="text-good">${icon("check", "h-4 w-4")}</span>${h}</li>`).join("")}</ul>
+        <p class="mt-4 text-sm font-medium text-muted">${t("ينقصه", "Missing")}</p><ul class="mt-2 flex flex-col gap-1.5">${L(sel.lacks).map((h) => `<li class="flex items-center gap-2 text-sm text-ink"><span class="text-warn">${icon("alert", "h-4 w-4")}</span>${h}</li>`).join("")}</ul>
+        <div class="mt-6 flex justify-end">${sel.short ? `<a href="#shortlist" class="${BTN_QUIET}">${t("افتح القائمة المختصرة", "Open shortlist")}</a>` : `<button type="button" class="${BTN_PRIMARY}" aria-label="${t("أضف إلى القائمة المختصرة:", "Add to shortlist:")} ${L(sel)}" data-act="shortlistAdd" data-arg="${sel.id}">${t("أضف إلى القائمة المختصرة", "Add to shortlist")}</button>`}</div>`
+      : `<div class="mt-4">${empty(t("اختر مرشحًا من النتائج لترى ملفه هنا.", "Pick a candidate from the results to see the profile here."))}</div>`}
+    </section></div>`;
+}
+function viewReach() {
+  const cv = CONVOS.find((x) => x.id === S.selConvo) || CONVOS[0], c = cand(cv.c);
+  return `<div class="grid grid-cols-1 gap-6 lg:grid-cols-12">
+    <section class="${CELL} lg:col-span-5" aria-labelledby="cv-h"><h2 id="cv-h" class="${H2}">${t("المحادثات", "Conversations")}</h2>
+      <p class="mb-4 mt-1 text-sm text-muted">${t("قبول الطلب، الرد، والاهتمام ثلاث حالات مختلفة.", "Accepted, replied and interested are three different states.")}</p>${convoList(true)}</section>
+    <section class="${CELL} lg:col-span-7" aria-labelledby="chat-h">
+      <div class="flex flex-wrap items-center justify-between gap-3"><div class="flex items-center gap-3">${avatar(c)}<div><h2 id="chat-h" class="${H2}">${L(c)}</h2><p class="text-sm text-muted">${L(P[c.p])}</p></div></div>
+        ${sw(cv.on, "replies", cv.id, `${t("ردود هيرو في محادثة", "Hiro replies in the conversation with")} ${L(c)}`, t("ردود هيرو", "Hiro replies"))}</div>
+      <ol class="mt-5 grid grid-cols-4 gap-2" aria-label="${t("تقدّم التواصل", "Outreach progress")}">${REACH_STEPS.map((s, i) => `<li><div class="h-1.5 rounded-full ${i < cv.step ? "bg-reach" : "bg-sunken"}"></div><p class="mt-1.5 text-xs ${i + 1 === cv.step ? "font-medium text-ink" : "text-muted"}">${L(s)}${i + 1 === cv.step ? ` (${t("الحالية", "current")})` : ""}</p></li>`).join("")}</ol>
+      <ul class="mt-5 flex flex-col gap-3">${cv.msgs.map(([who, m]) => `<li class="flex ${who === "hiro" ? "justify-start" : "justify-end"}"><div class="max-w-[85%] rounded-2xl px-4 py-3 text-sm ${who === "hiro" ? "bg-sunken text-ink" : "bg-brand-soft text-ink"}"><p class="mb-1 text-xs font-medium text-muted">${who === "hiro" ? "Hiro:Reach" : L(c)}</p>${L(m)}</div></li>`).join("")}</ul>
+      ${cv.on ? "" : `<p class="mt-4 flex items-start gap-2 rounded-xl bg-warn/10 p-3 text-sm text-ink"><span class="mt-0.5 text-warn">${icon("alert", "h-4 w-4")}</span>${t("ردود هيرو متوقفة في هذه المحادثة. الردود القادمة تنتظرك أنت.", "Hiro replies are paused here. New replies wait for you.")}</p>`}
+      <div class="mt-6 grid gap-6 sm:grid-cols-2">
+        <div><h3 class="text-sm font-medium text-ink">${t("أهداف التواصل", "Outreach goals")}</h3><ul class="mt-2 flex flex-col gap-1">${GOALS.map((g, i) => `<li><label class="flex min-h-11 items-center gap-3 text-sm text-ink"><input type="checkbox" id="goal-${cv.id}-${i}" data-act="goal" data-arg="${cv.id}:${i}" ${cv.goals[i] ? "checked" : ""} class="h-5 w-5 rounded accent-[rgb(var(--brand))]">${L(g)}</label></li>`).join("")}</ul></div>
+        <div><h3 class="text-sm font-medium text-ink">${t("توجيه هيرو", "Brief Hiro")}</h3><p class="mt-2 text-sm text-muted">${t("نبرة ودّية ومختصرة. لا يذكر الراتب قبل أن يسأل المرشح.", "Friendly and brief. Does not mention salary before the candidate asks.")}</p><button type="button" class="${BTN_QUIET} mt-3" data-act="proto" data-arg="brief">${t("عدّل التوجيه", "Edit brief")}</button></div>
+      </div>
+    </section></div>`;
+}
+function viewVoice() {
+  const v = CALLS.find((x) => x.id === S.selCall && x.status === "completed") || CALLS.find((x) => x.status === "completed"), c = v && cand(v.c);
+  const voices = [["Nada", t("عربي", "Arabic")], ["Abdullah", t("عربي", "Arabic")], ["Sara", t("إنجليزي", "English")], ["Omar", t("إنجليزي", "English")]];
+  return `<div class="grid grid-cols-1 gap-6 lg:grid-cols-12">
+    <section class="${CELL} lg:col-span-7" aria-labelledby="calls-h"><div class="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 id="calls-h" class="${H2}">${t("مكالمات الفرز", "Screening calls")}</h2>
+      <button type="button" class="${BTN_PRIMARY}" data-act="dlg" data-arg="screening:sara">${icon("voice", "h-4 w-4")}${t("ابدأ مكالمة فرز", "Start screening call")}</button></div>${callList(true)}</section>
+    <section class="${CELL} lg:col-span-5" aria-labelledby="sum-h"><h2 id="sum-h" class="${H2}">${t("ملخص المكالمة", "Call summary")}</h2>
+      ${v ? `<div class="mt-4 flex items-center gap-3">${avatar(c)}<div><p class="font-medium text-ink">${L(c)}</p><p class="text-sm text-muted">${t("المدة", "Length")} ${num(v.len)}${sep()}${t("الصوت", "Voice")}: ${v.voice}</p></div></div>
+        <p class="mt-4">${pill(`${t("اقتراح هيرو", "Hiro suggests")}: ${v.outcome === "consider" ? t("يُنظر فيه", "Consider") : t("رفض", "Reject")}`, v.outcome === "consider" ? "good" : "bad")}</p>
+        <ul class="mt-4 flex flex-col gap-2">${L(v.sum).map((s) => `<li class="flex items-start gap-2 text-sm text-ink"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-voice"></span>${s}</li>`).join("")}</ul>
+        <p class="mt-4 text-sm text-muted">${t("القرار لك. النتيجة اقتراح وليست قرار تعيين.", "The decision is yours. The result is a suggestion, not a hiring decision.")}</p>
+        <div class="mt-5 flex flex-wrap justify-end gap-2"><button type="button" class="${BTN_DANGER}" aria-label="${t("ارفض:", "Reject:")} ${L(c)}" data-act="decide" data-arg="${c.id}:rejected">${t("ارفض المرشح", "Reject candidate")}</button><button type="button" class="${BTN_PRIMARY}" aria-label="${t("انقل إلى المقابلة:", "Move to interview:")} ${L(c)}" data-act="decide" data-arg="${c.id}:review">${t("انقل إلى المقابلة", "Move to interview")}</button></div>`
+      : `<div class="mt-4">${empty(t("لا مكالمات مكتملة بعد. ابدأ مكالمة فرز ليظهر ملخصها هنا.", "No completed calls yet. Start a screening call and its summary appears here."))}</div>`}
+    </section>
+    <section class="${CELL} lg:col-span-12" aria-labelledby="voices-h"><h2 id="voices-h" class="${H2}">${t("الأصوات والتغطية", "Voices and coverage")}</h2><p class="mt-1 text-sm text-muted">${t("تغطية الإطلاق: الأرقام السعودية. الفرز بالعربية أو الإنجليزية.", "Launch coverage: Saudi numbers. Screening in Arabic or English.")}</p>
+      <ul class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">${voices.map(([n, l]) => `<li class="flex items-center gap-3 rounded-2xl bg-sunken/60 p-3">${agentBadge("voice", "h-9 w-9")}<div><p class="font-medium text-ink">${n}</p><p class="text-sm text-muted">${l}</p></div></li>`).join("")}</ul></section>
+  </div>`;
+}
+const viewNext = () => `<div class="grid grid-cols-1 gap-6 lg:grid-cols-12"><section class="${CELL} lg:col-span-8" aria-labelledby="rec-h"><h2 id="rec-h" class="${H2} mb-4">${t("توصيات تنتظر قرارك", "Recommendations waiting for your decision")}</h2>${recsPanel()}</section>
+  <section class="${CELL} self-start lg:col-span-4" aria-labelledby="how-h"><h2 id="how-h" class="${H2}">${t("كيف يقترح هيرو؟", "How Hiro suggests")}</h2><ul class="mt-4 flex flex-col gap-3 text-sm text-ink">${[t("كل توصية معها سببها ونسبة المطابقة.", "Every recommendation carries its reason and match score."), t("لا شيء يُنفَّذ قبل موافقتك.", "Nothing runs before you approve it."), t("كل إجراء يمكن التراجع عنه خلال 10 ثوانٍ.", "Every action can be undone for 10 seconds.")].map((x) => `<li class="flex items-start gap-2"><span class="mt-0.5 text-next">${icon("check", "h-4 w-4")}</span>${x}</li>`).join("")}</ul></section></div>`;
+const viewBrain = () => `<div class="grid grid-cols-1 gap-6 lg:grid-cols-12"><section class="${CELL} lg:col-span-8" aria-label="${t("اسأل هيرو", "Ask Hiro")}">${brainPanel()}</section>
+  <section class="${CELL} self-start lg:col-span-4" aria-labelledby="src-h"><h2 id="src-h" class="${H2}">${t("من أين يجيب هيرو؟", "Where answers come from")}</h2><ul class="mt-4 flex flex-col gap-3 text-sm text-ink">${[[t("المشاريع", "Projects"), 4], [t("المرشحون", "Candidates"), 139], [t("مكالمات الفرز", "Screening calls"), 11]].map(([l, n]) => `<li class="flex items-center justify-between gap-3 rounded-xl bg-sunken/60 px-3 py-2"><span>${l}</span><span class="font-semibold">${num(n)}</span></li>`).join("")}</ul><p class="mt-4 text-sm text-muted">${t("إذا كانت البيانات ناقصة، يذكر هيرو النقص داخل الإجابة.", "When data is missing, Hiro says so inside the answer.")}</p></section></div>`;
+function viewEnrichment() {
+  return `<div class="grid grid-cols-1 gap-6 lg:grid-cols-12">
+    <section class="${CELL} lg:col-span-7" aria-labelledby="en-h"><h2 id="en-h" class="${H2}">${t("ابحث عن بيانات تواصل", "Find contact details")}</h2>
+      <form id="enrichForm" class="mt-4 flex flex-col gap-2" novalidate><label for="enrichQ" class="text-sm font-medium">${t("رابط ملف LinkedIn", "LinkedIn profile URL")}</label>
+        <div class="flex flex-wrap gap-2"><input id="enrichQ" data-model="enrichQ" value="${esc(S.enrichQ)}" dir="ltr" class="${INPUT} flex-1 basis-64" placeholder="linkedin.com/in/..." aria-describedby="enrich-err"><button type="submit" class="${BTN_PRIMARY}">${t("ابحث عن البيانات", "Find details")}</button></div>
+        <p id="enrich-err" class="text-sm text-bad" ${S.enrichErr ? "" : "hidden"}>${t("الصق رابط ملف LinkedIn، مثل linkedin.com/in/name.", "Paste a LinkedIn profile link, like linkedin.com/in/name.")}</p></form>
+      <div class="mt-5" aria-live="polite">${S.enrichResult ? `<div class="flex flex-wrap items-center gap-4 rounded-2xl bg-sunken/60 p-4">${avatar({ en: "Dana Alsubaie" })}<div class="min-w-0 flex-1 basis-44"><p class="font-medium text-ink">${t("دانة السبيعي", "Dana Alsubaie")}</p><p class="text-sm text-muted">${t("أخصائية توظيف أولى، الرياض", "Senior recruiter, Riyadh")}</p><p class="mt-1 text-sm text-ink">${t("بريد عمل وجوال متاحان", "Work email and mobile available")}</p></div><button type="button" class="${BTN_QUIET}" data-act="saveContact">${t("احفظ جهة الاتصال", "Save contact")}</button></div>` : empty(t("الصق رابطًا لتظهر بيانات التواصل هنا.", "Paste a link and the contact details appear here."))}</div></section>
+    <section class="${CELL} lg:col-span-5" aria-labelledby="sv-h"><h2 id="sv-h" class="${H2}">${t("جهات الاتصال المحفوظة", "Saved contacts")}</h2>
+      <ul class="mt-4 flex flex-col gap-2">${SAVED.map((s) => `<li class="flex items-center gap-3 rounded-2xl bg-sunken/60 p-3">${avatar(s)}<div><p class="font-medium text-ink">${L(s)}</p><p class="text-sm text-muted">${L(s.title)}</p></div></li>`).join("")}</ul></section></div>`;
+}
+function viewAnalytics() {
+  const s = STATS[S.period], f = s.funnel;
+  const kpis = [[f[0], t("في القائمة المختصرة", "Shortlisted"), "shortlist"], [f[1], t("تم التواصل معهم", "Contacted"), "reach"], [s.voice, t("مكالمات فرز مكتملة", "Screening calls completed"), "voice"], [f[3], t("تعيينات", "Hires"), "shortlist"]];
+  return `<ul class="grid grid-cols-2 gap-6 lg:grid-cols-4">${kpis.map(([v, l, href]) => `<li><a href="#${href}" class="${CELL} block hover:border-brand ${FOCUS}"><p class="font-display text-4xl font-semibold text-ink">${num(v)}</p><p class="mt-1 text-sm text-ink">${l}</p><p class="text-xs text-muted">${S.period === 7 ? t("آخر 7 أيام", "Last 7 days") : t("آخر 30 يومًا", "Last 30 days")}</p></a></li>`).join("")}</ul>
+  <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12"><div class="lg:col-span-8">${lineChart()}</div><div class="lg:col-span-4">${funnelCell()}</div>
+    <section class="${CELL} lg:col-span-12" aria-labelledby="health-h"><h2 id="health-h" class="${H2}">${t("صحة المسار", "Pipeline health")}</h2>
+      <ul class="mt-4 grid gap-3 md:grid-cols-3">${[["warn", t("13 ردًّا بلا متابعة", "13 replies without follow-up"), t("أقدمها مضى عليه 35 يومًا.", "The oldest is 35 days old."), "reach", t("افتح المحادثات", "Open conversations")], ["bad", t("مطوّر بلوك تشين: مطابقة 54%", "Blockchain Developer: 54% match"), t("النتائج بعيدة عن المتطلبات الأساسية.", "Results are far from the must-haves."), "seek", t("عدّل البحث", "Adjust search")], ["good", t("أخصائي استقطاب مواهب يتقدّم", "Talent Acquisition Officer is moving"), t("14 في القائمة المختصرة ومطابقة 86%.", "14 shortlisted at 86% match."), "shortlist", t("افتح القائمة", "Open shortlist")]]
+        .map(([tone, title, text, href, cta]) => `<li class="flex flex-col gap-2 rounded-2xl bg-sunken/60 p-4"><span>${pill(tone === "warn" ? t("يحتاج متابعة", "Needs follow-up") : tone === "bad" ? t("متعثّر", "Stalled") : t("سليم", "Healthy"), tone)}</span><p class="font-medium text-ink">${title}</p><p class="text-sm text-muted">${text}</p><a href="#${href}" class="mt-auto text-sm font-medium text-brand underline underline-offset-4 ${FOCUS}">${cta}</a></li>`).join("")}</ul></section></div>`;
+}
+function viewBilling() {
+  const cur = plan(), active = activeRoles(), total = cur.price * 1.15;
+  const meters = [[t("أدوار نشطة", "Active roles"), active, cur.roles, "projects", t("افتح المشاريع", "Open projects")], [t("دقائق الفرز الصوتي", "Voice screening minutes"), 84, cur.voice, "voice", t("افتح Hiro:Voice", "Open Hiro:Voice")], [t("فتح بيانات التواصل", "Contact unlocks"), 37, cur.unlocks, "enrichment", t("افتح بيانات التواصل", "Open contact enrichment")]];
+  const meter = ([label, v, max, href, cta]) => { const r = v / max, tone = r >= 1 ? "bad" : r >= 0.8 ? "warn" : "ok"; return `<li class="flex flex-col gap-2 rounded-2xl bg-sunken/60 p-4">
+      <div class="flex items-baseline justify-between gap-3"><span class="text-sm text-ink">${label}</span><span class="text-sm text-muted"><span class="font-display text-xl font-semibold text-ink">${num(v)}</span> ${t("من", "of")} ${num(max)}</span></div>
+      <div class="h-2 rounded-full bg-sunken" role="img" aria-label="${label}: ${v} ${t("من", "of")} ${max}"><div class="h-full rounded-full ${tone === "bad" ? "bg-bad" : tone === "warn" ? "bg-warn" : "bg-brand"}" style="width:${Math.min(100, r * 100)}%"></div></div>
+      ${tone === "ok" ? `<a href="#${href}" class="self-start text-sm font-medium text-brand underline underline-offset-4 ${FOCUS}">${cta}</a>` : `<p class="flex items-start gap-2 text-sm text-ink"><span class="mt-0.5 ${tone === "bad" ? "text-bad" : "text-warn"}">${icon("alert", "h-4 w-4")}</span>${tone === "bad" ? t("وصلت إلى حد خطتك. حوّل إلى خطة أعلى من الأسفل لتكمل.", "You reached your plan limit. Switch to a higher plan below to continue.") : t("قاربت حد خطتك.", "You are close to your plan limit.")}</p>`}
+    </li>`; };
+  return `<div class="grid grid-cols-1 gap-6 lg:grid-cols-12">
+    ${S.cancelled ? `<div class="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-warn/10 p-5 lg:col-span-12"><p class="flex max-w-prose items-start gap-2 text-ink"><span class="mt-1 text-warn">${icon("alert", "h-4 w-4")}</span>${t(`أُلغي التجديد. اشتراكك يعمل حتى ${chargeDate()}، ثم يتوقف هيرو وتبقى بياناتك محفوظة.`, `Renewal is cancelled. Your subscription runs until ${chargeDate()}, then Hiro stops and your data is kept.`)}</p><button type="button" class="${BTN_PRIMARY}" data-act="resume">${t("استأنف الاشتراك", "Resume subscription")}</button></div>` : ""}
+    <section class="${CELL} lg:col-span-8" aria-labelledby="cur-h">
+      <div class="flex flex-wrap items-start justify-between gap-4"><div><p class="text-sm text-muted">${t("خطتك الحالية", "Your current plan")}</p><h2 id="cur-h" class="font-display text-3xl font-semibold text-ink">${cur.name}</h2><p class="mt-1 text-sm text-muted">${L(cur.who)}</p></div>
+        <div class="text-end"><p class="font-display text-3xl font-semibold text-ink">${sar(cur.price)}</p><p class="text-sm text-muted">${t("شهريًا، قبل الضريبة", "per month, before VAT")}</p></div></div>
+      <h3 class="mt-6 text-sm font-medium text-ink">${t("استخدامك هذا الشهر", "Your usage this month")}</h3><p class="text-xs text-muted">${t("حتى 18 نوفمبر، 10:42. أرقام الاستخدام نموذجية.", "As of 18 Nov, 10:42. Usage numbers are sample data.")}</p>
+      <ul class="mt-3 grid gap-3 sm:grid-cols-3">${meters.map(meter).join("")}</ul>
+    </section>
+    <section class="${CELL} flex flex-col gap-4 lg:col-span-4" aria-labelledby="pay-h">
+      <h2 id="pay-h" class="${H2}">${S.cancelled ? t("آخر يوم في الاشتراك", "Last day of subscription") : t("الدفعة القادمة", "Next payment")}</h2>
+      <div><p class="font-display text-3xl font-semibold text-ink">${S.cancelled ? chargeDate() : sar(total)}</p><p class="mt-1 text-sm text-muted">${S.cancelled ? t("لن تُخصم أي دفعة بعد الآن.", "No further payments will be taken.") : t(`في ${chargeDate()}، شاملة ضريبة القيمة المضافة 15%`, `On ${chargeDate()}, including 15% VAT`)}</p></div>
+      <div class="flex items-center gap-3 rounded-2xl bg-sunken/60 p-4"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface text-muted">${icon("billing")}</span><div class="min-w-0 flex-1"><p class="font-medium text-ink">${t("بطاقة مدى تنتهي بـ", "mada card ending")} ${num("4242")}</p><p class="text-sm text-muted">${t("تنتهي في", "Expires")} ${num("08/28")}</p></div></div>
+      <button type="button" class="${BTN_QUIET} self-start" data-act="proto" data-arg="card">${t("غيّر وسيلة الدفع", "Change payment method")}</button>
+      <p class="text-xs text-muted">${t("بيانات البطاقة تُدخل في صفحة مزوّد الدفع الآمنة، ولا تُحفظ في NexHiro.", "Card details are entered on the payment provider's secure page and are not stored in NexHiro.")}</p>
+    </section>
+    <section class="${CELL} lg:col-span-12" aria-labelledby="plans-h">
+      <div class="flex flex-wrap items-end justify-between gap-3"><div><h2 id="plans-h" class="${H2}">${t("قارن الخطط", "Compare plans")}</h2><p class="mt-1 text-sm text-muted">${t("كل خطة تشمل الوكلاء الخمسة. الأسعار شهرية بالريال قبل الضريبة، والدفع السنوي يوفّر نحو 30%.", "Every plan includes the five Hiro modes. Prices are monthly in SAR before VAT; annual billing saves about 30%.")}</p></div></div>
+      <ul class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">${PLANS.map((p) => { const isCur = p.id === S.plan, blocked = !isCur && active > p.roles; return `
+        <li class="flex flex-col gap-4 rounded-3xl border-2 p-5 ${isCur ? "border-brand bg-brand-soft/50" : "border-transparent bg-sunken/60"}">
+          <div><div class="flex items-center justify-between gap-2"><h3 class="font-display text-lg font-semibold text-ink">${p.name}</h3>${isCur ? pill(t("خطتك الحالية", "Current plan"), "good") : ""}</div><p class="text-sm text-muted">${L(p.who)}</p></div>
+          <p><span class="font-display text-2xl font-semibold text-ink">${sar(p.price)}</span> <span class="text-sm text-muted">${t("شهريًا", "per month")}</span></p>
+          <ul class="flex flex-col gap-2">${L(p.feats).map((f) => `<li class="flex items-start gap-2 text-sm text-ink"><span class="mt-0.5 text-brand">${icon("check", "h-4 w-4")}</span>${f}</li>`).join("")}</ul>
+          <div class="mt-auto pt-2">${isCur ? "" : blocked ? `<p id="blk-${p.id}" class="text-sm text-ink">${t(`لديك ${active} أدوار نشطة وهذه الخطة تسمح بـ${p.roles}. أوقف مشروعًا أولًا.`, `You have ${active} active roles and this plan allows ${p.roles}. Pause a project first.`)}</p><a href="#projects" class="${BTN_QUIET} mt-3">${t("افتح المشاريع", "Open projects")}</a>` : `<button type="button" class="${BTN_QUIET} w-full" data-act="dlg" data-arg="plan:${p.id}">${t("حوّل إلى", "Switch to")} ${p.name}</button>`}</div>
+        </li>`; }).join("")}
+        <li class="flex flex-col gap-4 rounded-3xl border-2 border-transparent bg-sunken/60 p-5"><div><h3 class="font-display text-lg font-semibold text-ink">Enterprise</h3><p class="text-sm text-muted">${t("لعمليات التوظيف المعقّدة", "For complex recruitment operations")}</p></div><p class="font-display text-2xl font-semibold text-ink">${t("سعر مخصص", "Custom pricing")}</p>
+          <ul class="flex flex-col gap-2">${[t("سعة مخصصة", "Custom capacity"), t("تهيئة وتكاملات", "Onboarding and integrations"), t("ضوابط تشغيل خاصة بمنشأتك", "Guardrails designed for your organization")].map((f) => `<li class="flex items-start gap-2 text-sm text-ink"><span class="mt-0.5 text-brand">${icon("check", "h-4 w-4")}</span>${f}</li>`).join("")}</ul>
+          <div class="mt-auto pt-2"><button type="button" class="${BTN_QUIET} w-full" data-act="proto" data-arg="sales">${t("تواصل مع المبيعات", "Contact sales")}</button></div></li>
+      </ul>
+    </section>
+    <section class="${CELL} lg:col-span-8" aria-labelledby="inv-h"><h2 id="inv-h" class="${H2}">${t("الفواتير", "Invoices")}</h2><p class="mt-1 text-sm text-muted">${t("فواتير نموذجية.", "Sample invoices.")}</p>
+      <div class="mt-4 overflow-x-auto"><table class="w-full min-w-[560px] text-sm"><thead><tr class="text-muted">${[t("التاريخ", "Date"), t("رقم الفاتورة", "Invoice number"), t("المبلغ شاملًا الضريبة", "Amount incl. VAT"), t("الحالة", "Status"), ""].map((h, i) => `<th scope="col" class="px-2 py-3 font-medium ${i === 4 ? "text-end" : "text-start"}">${h || `<span class="sr-only">${t("تنزيل", "Download")}</span>`}</th>`).join("")}</tr></thead>
+        <tbody>${INVOICES.map(([n, d]) => `<tr class="border-t border-line"><td class="whitespace-nowrap px-2 py-3 text-ink">${L(d)}</td><td class="px-2 py-3 text-ink">${num(n)}</td><td class="whitespace-nowrap px-2 py-3 text-ink">${sar(803.85)}</td><td class="px-2 py-3">${pill(t("مدفوعة", "Paid"), "good")}</td><td class="px-2 py-3 text-end"><button type="button" class="${BTN_QUIET}" aria-label="${t("نزّل الفاتورة", "Download invoice")} ${n}" data-act="proto" data-arg="${n}">${t("نزّل PDF", "Download PDF")}</button></td></tr>`).join("")}</tbody></table></div></section>
+    <section class="${CELL} flex flex-col gap-4 self-start lg:col-span-4" aria-labelledby="det-h"><h2 id="det-h" class="${H2}">${t("بيانات الفوترة", "Billing details")}</h2>
+      <dl class="flex flex-col gap-3 text-sm">${[[t("المنشأة", "Company"), t("شركة نموذجية للتوظيف", "Sample Recruitment Co.")], [t("الرقم الضريبي", "VAT number"), num("300000000000003")], [t("بريد الفواتير", "Invoice email"), `<bdi dir="ltr">billing@example.com</bdi>`]].map(([k, v]) => `<div><dt class="text-muted">${k}</dt><dd class="text-ink">${v}</dd></div>`).join("")}</dl>
+      <button type="button" class="${BTN_QUIET} self-start" data-act="proto" data-arg="details">${t("عدّل بيانات الفوترة", "Edit billing details")}</button>
+      ${S.cancelled ? "" : `<div class="mt-2 border-t border-line pt-4"><p class="text-sm text-muted">${t("يمكنك إلغاء التجديد في أي وقت، ويبقى الاشتراك حتى نهاية الشهر المدفوع.", "You can cancel renewal at any time. The subscription runs to the end of the paid month.")}</p><button type="button" class="${BTN_DANGER} mt-3" data-act="dlg" data-arg="unsubscribe">${t("ألغِ الاشتراك", "Cancel subscription")}</button></div>`}
+    </section></div>`;
+}
+const VIEWS = { billing: viewBilling, dashboard: viewDashboard, projects: viewProjects, shortlist: viewShortlist, seek: viewSeek, reach: viewReach, voice: viewVoice, next: viewNext, brain: viewBrain, enrichment: viewEnrichment, analytics: viewAnalytics };
+
+/* ---------- Shell ---------- */
+function isDark() { return S.theme ? S.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; }
+function render() {
+  const ae = document.activeElement, key = ae && ae !== document.body ? (ae.id ? `#${ae.id}` : ae.dataset && ae.dataset.act ? `[data-act="${ae.dataset.act}"]${ae.dataset.arg != null ? `[data-arg="${ae.dataset.arg}"]` : ""}` : null) : null;
+  const caret = ae && ae.selectionStart != null && ae.type !== "checkbox" ? ae.selectionStart : null;
+  document.documentElement.lang = S.lang; document.documentElement.dir = S.lang === "ar" ? "rtl" : "ltr";
+  if (S.theme) document.documentElement.dataset.theme = S.theme;
+  const cur = NAV.find(([id]) => id === S.route), isAgent = !!AGENT[S.route];
+  const link = (n, mobile) => { const [id] = n, on = S.route === id; return `<a href="#${id}" ${on ? 'aria-current="page"' : ""} class="flex min-h-11 items-center gap-3 whitespace-nowrap rounded-xl px-3 text-sm font-medium ${FOCUS} ${on ? "bg-brand-soft text-brand" : "text-muted hover:bg-sunken hover:text-ink"}">${AGENT[id] ? `<span class="${AGENT[id].text}">${icon(id)}</span>` : icon(id)}${navLabel(n)}${id === "next" && RECS.length ? `<span class="ms-auto rounded-full bg-warn/10 px-2 py-0.5 text-xs text-warn ${mobile ? "ms-1" : ""}">${num(RECS.length)}</span>` : ""}</a>`; };
+  const group = (title, items, mobile) => `<div><p class="px-3 pb-1 text-xs font-medium text-muted">${title}</p><div class="flex ${mobile ? "" : "flex-col"} gap-1">${items.map((n) => link(n, mobile)).join("")}</div></div>`;
+  const logo = `<a href="#dashboard" class="font-display text-xl font-semibold tracking-[0.18em] text-brand-bright ${FOCUS}" dir="ltr" aria-label="NexHiro">NEXHIRO</a>`;
+  document.getElementById("app").innerHTML = `
+  <aside class="fixed inset-y-0 start-0 z-30 hidden w-64 flex-col gap-6 overflow-y-auto border-e border-line bg-surface p-5 lg:flex">
+    ${logo}
+    <nav aria-label="${t("التنقل الرئيسي", "Main navigation")}" class="flex flex-col gap-5">${group(t("العمل", "Work"), NAV.slice(0, 3))}${group(t("وكلاء هيرو", "Hiro agents"), NAV.slice(3, 8))}${group(t("الأدوات", "Tools"), NAV.slice(8, 10))}${group(t("الحساب", "Account"), NAV.slice(10))}</nav>
+    <p class="mt-auto rounded-2xl bg-sunken/60 p-3 text-xs text-muted">${t("هيرو ينفّذ، وفريقك يقرر التعيين. البيانات المعروضة نموذجية.", "Hiro executes, your team decides who to hire. All data shown is sample data.")}</p>
+  </aside>
+  <div class="lg:ps-64">
+    <div class="gutter border-b border-line bg-surface lg:hidden"><div class="flex items-center justify-between py-3">${logo}</div>
+      <nav aria-label="${t("التنقل الرئيسي", "Main navigation")}" class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-3">${NAV.map((n) => link(n, true)).join("")}</nav></div>
+    <main id="main" class="gutter mx-auto max-w-[1400px] pb-28 pt-6 sm:pt-10">
+      <header class="mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+        <div class="flex items-center gap-4">${isAgent ? agentBadge(S.route, "h-12 w-12") : ""}<div><h1 class="font-display text-3xl font-semibold text-ink">${navLabel(cur)}</h1>
+          <p class="mt-1 text-muted">${isAgent ? L(AGENT[S.route].role) : S.route === "dashboard" ? (RECS.length ? t(`${RECS.length} توصيات بانتظار قرارك`, `${RECS.length} recommendations need your decision`) : t("لا توصيات بانتظارك. كل شيء محدَّث.", "No recommendations waiting. You're up to date.")) : t("البيانات المعروضة نموذجية.", "All data shown is sample data.")}</p></div></div>
+        <div class="flex flex-wrap items-center gap-2">
+          ${["dashboard", "analytics"].includes(S.route) ? `<div role="group" aria-label="${t("الفترة الزمنية", "Time period")}" class="flex rounded-full bg-sunken p-1">${[[7, t("7 أيام", "7 days")], [30, t("30 يومًا", "30 days")]].map(([p, l]) => `<button type="button" aria-pressed="${S.period === p}" data-act="period" data-arg="${p}" class="min-h-9 rounded-full px-4 text-sm font-medium ${FOCUS} ${S.period === p ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}">${l}</button>`).join("")}</div>` : ""}
+          <button type="button" data-act="lang" lang="${S.lang === "ar" ? "en" : "ar"}" aria-label="${S.lang === "ar" ? "Switch to English" : "التحويل إلى العربية"}" class="${BTN_QUIET} px-4">${S.lang === "ar" ? "English" : "العربية"}</button>
+          <button type="button" data-act="theme" aria-label="${isDark() ? t("فعّل الوضع الفاتح", "Switch to light mode") : t("فعّل الوضع الداكن", "Switch to dark mode")}" class="${BTN_QUIET} w-11 px-0">${icon(isDark() ? "sun" : "moon")}</button>
+          <button type="button" data-act="dlg" data-arg="candidate" class="${BTN_PRIMARY}">${icon("plus", "h-4 w-4")}${t("أضف مرشحًا", "Add candidate")}</button>
+        </div>
+      </header>
+      ${VIEWS[S.route]()}
+    </main>
+  </div>`;
+  document.title = "NexHiro Platform";
+  if (key) { const el = document.querySelector(key); if (el) { el.focus({ preventScroll: true }); if (caret != null && el.setSelectionRange) try { el.setSelectionRange(caret, caret); } catch (e) {} } }
+}
+
+/* ---------- Toast with undo (10 s, pauses on hover and focus, never takes focus) ---------- */
+let toastTimer = null, toastUndo = null;
+const toastEl = document.getElementById("toast");
+const armToast = () => { clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.innerHTML = ""; toastUndo = null; }, 10000); };
+function notify(text, undo) {
+  toastUndo = undo || null;
+  toastEl.innerHTML = `<div id="toastBox" class="pointer-events-auto flex w-full max-w-xl flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-ink py-2 pe-2 ps-5 text-sm text-surface shadow-lg"><p class="flex-1 basis-48 py-2">${esc(text)}</p>
+    ${undo ? `<button type="button" data-act="undo" class="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 font-medium underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-surface">${icon("undo", "h-4 w-4", true)}${t("تراجع", "Undo")}</button>` : ""}
+    <button type="button" data-act="toastClose" aria-label="${t("أغلق الإشعار", "Close notification")}" class="inline-flex h-11 w-11 items-center justify-center rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-surface">${icon("x", "h-4 w-4")}</button></div>`;
+  const box = document.getElementById("toastBox");
+  box.addEventListener("mouseenter", () => clearTimeout(toastTimer)); box.addEventListener("mouseleave", armToast);
+  box.addEventListener("focusin", () => clearTimeout(toastTimer)); box.addEventListener("focusout", armToast);
+  armToast();
+}
+
+/* ---------- Dialog (native: focus trap, Escape, focus return; outside click does not close) ---------- */
+const dlg = document.getElementById("dlg");
+let dlgKind = null, dlgTrigger = null, dlgPreset = null;
+function openDialog(arg, trigger) {
+  const [kind, preset] = arg.split(":"); dlgKind = kind; dlgTrigger = trigger;
+  const sel = (name, label, options, def) => `<div class="flex flex-col gap-1.5"><label for="f-${name}" class="text-sm font-medium">${label}</label><select id="f-${name}" name="${name}" class="${INPUT}">${options.map(([v, l]) => `<option value="${v}" ${v === def ? "selected" : ""}>${l}</option>`).join("")}</select></div>`;
+  const txt = (name, label, extra = "", hint = "") => `<div class="flex flex-col gap-1.5"><label for="f-${name}" class="text-sm font-medium">${label}</label><input id="f-${name}" name="${name}" class="${INPUT}" aria-describedby="e-${name}" ${extra}>${hint ? `<p class="text-xs text-muted">${hint}</p>` : ""}<p id="e-${name}" class="text-sm text-bad" hidden></p></div>`;
+  const projects = Object.values(P).map((p) => [p.id, L(p)]);
+  const forms = {
+    screening: { title: t("ابدأ مكالمة فرز", "Start screening call"), desc: t("هيرو يتصل بالمرشح ويسأله أسئلة الفرز، ثم يكتب لك الملخص.", "Hiro phones the candidate, asks the screening questions, then writes you the summary."), submit: t("ابدأ مكالمة الفرز", "Start screening call"),
+      body: () => sel("candidate", t("المرشح", "Candidate"), CANDS.filter((c) => !["rejected", "hired"].includes(c.stage)).map((c) => [c.id, L(c)]), preset) +
+        sel("template", t("قالب المكالمة", "Call template"), [["quick", t("فرز سريع: التوفر، فترة الإشعار، الراتب المتوقع", "Quick screen: availability, notice period, salary")], ["standard", t("فرز قياسي: الدور، الخبرة، المهارات", "Standard screen: role, experience, skills")], ["technical", t("دور تقني: عمق الخبرة التقنية", "Technical role: depth of experience")]], "quick") +
+        sel("voice", t("الصوت واللغة", "Voice and language"), [["Nada", t("ندى، عربي", "Nada, Arabic")], ["Abdullah", t("عبدالله، عربي", "Abdullah, Arabic")], ["Sara", t("Sara، إنجليزي", "Sara, English")], ["Omar", t("Omar، إنجليزي", "Omar, English")]], S.lang === "ar" ? "Nada" : "Sara") +
+        `<p class="text-sm text-muted">${t("تغطية الإطلاق: الأرقام السعودية.", "Launch coverage: Saudi numbers.")}</p>` },
+    candidate: { title: t("أضف مرشحًا", "Add candidate"), desc: t("يُضاف إلى القائمة المختصرة، ثم يقيّمه هيرو مقابل متطلبات المشروع.", "Goes to the shortlist, then Hiro scores them against the project brief."), submit: t("أضف المرشح", "Add candidate"),
+      body: () => txt("name", t("اسم المرشح", "Candidate name"), 'autocomplete="off"') + txt("url", t("رابط LinkedIn (اختياري)", "LinkedIn URL (optional)"), 'dir="ltr"') + sel("project", t("المشروع", "Project"), projects, "tao") },
+    project: { title: t("أنشئ مشروعًا", "Create project"), desc: t("إنشاء سريع. يمكنك إكمال بقية الوصف لاحقًا من صفحة المشروع.", "Quick setup. You can complete the brief later from the project page."), submit: t("أنشئ المشروع", "Create project"),
+      body: () => txt("name", t("المسمى الوظيفي", "Job title"), 'autocomplete="off"') + txt("city", t("المدينة", "City"), 'autocomplete="off"', t("مثال: الرياض", "Example: Riyadh")) + sel("work", t("نمط العمل", "Work type"), [["onsite", t("حضوري", "On-site")], ["hybrid", t("هجين", "Hybrid")], ["remote", t("عن بُعد", "Remote")]], "onsite") },
+  };
+  if (kind === "plan") { const p = plan(preset), up = p.price > plan().price;
+    forms.plan = { confirm: true, title: t(`التحويل إلى ${p.name}؟`, `Switch to ${p.name}?`), submit: `${t("حوّل إلى", "Switch to")} ${p.name}`, keep: `${t("ابقَ على", "Stay on")} ${plan().name}`,
+      desc: (up ? t(`يبدأ التحويل الآن، وترتفع حدود الاستخدام فورًا إلى ${p.roles} دورًا نشطًا.`, `The switch starts now and your limits rise at once to ${p.roles} active roles.`) : t(`يبدأ التحويل الآن، وتنخفض حدود الاستخدام إلى ${p.roles} أدوار نشطة.`, `The switch starts now and your limits drop to ${p.roles} active roles.`)) + " " + t(`دفعتك القادمة ${fmt(p.price * 1.15)} ر.س شاملة الضريبة في ${chargeDate()}، بدل ${fmt(plan().price * 1.15)} ر.س.`, `Your next payment is SAR ${fmt(p.price * 1.15)} including VAT on ${chargeDate()}, instead of SAR ${fmt(plan().price * 1.15)}.`), body: () => "" }; }
+  forms.unsubscribe = { confirm: true, danger: true, title: t("إلغاء اشتراك", "Cancel your") + " " + plan().name + t("؟", " subscription?"), submit: t("ألغِ الاشتراك", "Cancel subscription"), keep: t("أبقِ الاشتراك", "Keep subscription"),
+    desc: t(`يبقى اشتراكك يعمل حتى ${chargeDate()} ولا تُخصم دفعة جديدة. بعدها يتوقف هيرو عن العمل على ${activeRoles()} مشاريع نشطة، وتبقى بياناتك ومرشحوك محفوظين.`, `Your subscription runs until ${chargeDate()} and no new payment is taken. After that Hiro stops working on ${activeRoles()} active projects. Your data and candidates are kept.`), body: () => "" };
+  const f = forms[kind];
+  dlg.setAttribute("role", f.confirm ? "alertdialog" : "dialog");
+  dlg.innerHTML = `<form id="dlgForm" novalidate class="flex h-full max-h-[90vh] flex-col max-sm:max-h-none">
+    <div class="p-6 pb-4"><h2 id="dlg-title" class="font-display text-xl font-semibold">${f.title}</h2><p id="dlg-desc" class="mt-2 text-sm text-muted">${f.desc}</p></div>
+    <div class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 pb-1">${f.body()}</div>
+    <div class="flex flex-col-reverse gap-2 p-6 sm:flex-row sm:justify-end"><button type="button" class="${BTN_QUIET}" data-act="dlgCancel">${f.keep || t("إلغاء", "Cancel")}</button><button type="submit" class="${f.danger ? BTN_DANGER : BTN_PRIMARY}">${f.submit}</button></div></form>`;
+  dlgPreset = preset;
+  dlg.showModal();
+  /* Forms focus the first field; confirmations focus the safe action. */
+  const first = dlg.querySelector("input, select") || dlg.querySelector('[data-act="dlgCancel"]'); if (first) first.focus();
+}
+function closeDialog() { if (dlg.open) dlg.close(); }
+dlg.addEventListener("close", () => { const k = dlgTrigger; dlgTrigger = null; if (k) { const el = document.querySelector(k); if (el) el.focus(); } });
+function submitDialog(form) {
+  const d = Object.fromEntries(new FormData(form));
+  if (dlgKind === "plan") { const before = S.plan, p = plan(dlgPreset); S.plan = p.id; closeDialog(); render(); return notify(t(`خطتك الآن ${p.name}. الدفعة القادمة ${fmt(p.price * 1.15)} ر.س في ${chargeDate()}.`, `You are now on ${p.name}. Next payment SAR ${fmt(p.price * 1.15)} on ${chargeDate()}.`), () => { S.plan = before; render(); }); }
+  if (dlgKind === "unsubscribe") { S.cancelled = true; closeDialog(); render(); return notify(t(`أُلغي التجديد. اشتراكك يعمل حتى ${chargeDate()}.`, `Renewal cancelled. Your subscription runs until ${chargeDate()}.`), () => { S.cancelled = false; render(); }); }
+  if (dlgKind !== "screening") {
+    const name = (d.name || "").trim(), err = form.querySelector("#e-name"), input = form.querySelector("#f-name");
+    if (!name) { err.textContent = dlgKind === "candidate" ? t("اكتب اسم المرشح.", "Enter the candidate's name.") : t("اكتب المسمى الوظيفي.", "Enter the job title."); err.hidden = false; input.setAttribute("aria-invalid", "true"); input.focus(); return; }
+  }
+  if (dlgKind === "screening") {
+    const c = cand(d.candidate), id = "v" + Date.now();
+    CALLS = [{ id, c: c.id, status: "scheduled", when: { ar: "الآن", en: "Just now" } }, ...CALLS];
+    closeDialog(); render(); notify(t(`أُضيفت مكالمة فرز ${L(c)} إلى قائمة الانتظار.`, `Screening call for ${L(c)} added to the queue.`), () => { CALLS = CALLS.filter((x) => x.id !== id); render(); });
+  } else if (dlgKind === "candidate") {
+    const id = "n" + Date.now(), name = d.name.trim();
+    CANDS = [{ id, ar: name, en: name, p: d.project, match: 0, stage: "shortlisted", exp: 0, insight: { ar: "هيرو يقيّم الملف الآن", en: "Hiro is scoring the profile" }, next: null }, ...CANDS];
+    closeDialog(); render(); notify(t(`أُضيف ${name} إلى القائمة المختصرة.`, `${name} added to the shortlist.`), () => { CANDS = CANDS.filter((x) => x.id !== id); render(); });
+  } else {
+    const id = "p" + Date.now(), name = d.name.trim(), work = { onsite: { ar: "حضوري", en: "On-site" }, hybrid: { ar: "هجين", en: "Hybrid" }, remote: { ar: "عن بُعد", en: "Remote" } }[d.work], city = (d.city || "").trim();
+    P[id] = { id, ar: name, en: name, meta: { ar: [city, work.ar].filter(Boolean).join("، "), en: [city, work.en].filter(Boolean).join(", ") }, status: "active", sourced: 0, short: 0, match: 0 };
+    closeDialog(); render(); notify(t(`أُنشئ مشروع ${name}. هيرو يبدأ البحث الآن.`, `Project ${name} created. Hiro is starting the search.`), () => { delete P[id]; render(); });
+  }
+}
+
+/* ---------- Actions ---------- */
+const setStage = (id, stage, next) => { CANDS = CANDS.map((c) => (c.id === id ? { ...c, stage, next: next === undefined ? c.next : next } : c)); };
+function doCandidateAct(c, act, trigger) {
+  if (act === "screen") return openDialog("screening:" + c.id, trigger);
+  const before = CANDS, recsBefore = RECS, name = L(c);
+  if (act === "reject") setStage(c.id, "rejected"); else if (act === "connect") setStage(c.id, "pending", null); else if (act === "interview") setStage(c.id, "review", null); else if (act === "hold") setStage(c.id, c.stage, null);
+  RECS = RECS.filter((r) => r.c !== c.id);
+  render(); notify(ACT[act][1](name), () => { CANDS = before; RECS = recsBefore; render(); });
+}
+const ACTIONS = {
+  lang: () => { S.lang = S.lang === "ar" ? "en" : "ar"; toastEl.innerHTML = ""; render(); },
+  theme: () => { S.theme = isDark() ? "light" : "dark"; render(); },
+  period: (a) => { S.period = +a; render(); },
+  dashAgent: (a) => { location.hash = "dash-" + a; },
+  recFilter: (a) => { S.recFilter = a; render(); }, projFilter: (a) => { S.projFilter = a; render(); },
+  rec: (a, el) => { const r = RECS.find((x) => x.id === a); doCandidateAct(cand(r.c), r.act, `[data-act="rec"][data-arg="${a}"]`); },
+  recDismiss: (a) => { const before = RECS, r = RECS.find((x) => x.id === a); RECS = RECS.filter((x) => x.id !== a); render(); notify(t(`تم تجاهل توصية ${L(cand(r.c))}.`, `Recommendation for ${L(cand(r.c))} dismissed.`), () => { RECS = before; render(); }); },
+  rowAct: (a) => { const c = cand(a); doCandidateAct(c, c.next, `[data-act="rowAct"][data-arg="${a}"]`); },
+  restore: (a) => { const before = CANDS; setStage(a, "review"); render(); notify(t(`أُعيد ${L(cand(a))} إلى المراجعة.`, `${L(cand(a))} restored to review.`), () => { CANDS = before; render(); }); },
+  decide: (a) => { const [id, stage] = a.split(":"), before = CANDS, c = cand(id); setStage(id, stage, null); render(); notify(stage === "rejected" ? ACT.reject[1](L(c)) : ACT.interview[1](L(c)), () => { CANDS = before; render(); }); },
+  replies: (a) => { const flip = () => { CONVOS = CONVOS.map((x) => (x.id === a ? { ...x, on: !x.on } : x)); render(); }; const cv = CONVOS.find((x) => x.id === a), n = L(cand(cv.c)); flip(); notify(cv.on ? t(`أُوقفت ردود هيرو في محادثة ${n}.`, `Hiro replies paused for ${n}.`) : t(`ردود هيرو تعمل في محادثة ${n}.`, `Hiro replies are on for ${n}.`), flip); },
+  goal: (a) => { const [id, i] = a.split(":"); CONVOS = CONVOS.map((x) => (x.id === id ? { ...x, goals: x.goals.map((g, j) => (j === +i ? (g ? 0 : 1) : g)) } : x)); render(); },
+  selConvo: (a) => { S.selConvo = a; render(); }, selCall: (a) => { S.selCall = a; render(); }, selSeek: (a) => { S.selSeek = a; render(); },
+  seekProject: (a) => { S.seekProject = a; S.selSeek = null; if (S.route !== "seek") location.hash = "seek"; else render(); },
+  shortlistAdd: (a) => { const s = SOURCED.find((x) => x.id === a), before = [SOURCED, CANDS]; SOURCED = SOURCED.map((x) => (x.id === a ? { ...x, short: true } : x)); CANDS = [{ id: s.id, ar: s.ar, en: s.en, p: s.p, match: s.match, stage: "shortlisted", exp: 5, insight: { ar: "أُضيف من نتائج Hiro:Seek", en: "Added from Hiro:Seek results" }, next: "connect" }, ...CANDS]; render(); notify(t(`أُضيف ${L(s)} إلى القائمة المختصرة.`, `${L(s)} added to the shortlist.`), () => { [SOURCED, CANDS] = before; render(); }); },
+  projToggle: (a) => { const flip = () => { P[a].status = P[a].status === "active" ? "paused" : "active"; render(); }; flip(); notify(P[a].status === "active" ? t(`هيرو يعمل على مشروع ${L(P[a])}.`, `Hiro is running on ${L(P[a])}.`) : t(`أُوقف هيرو في مشروع ${L(P[a])}.`, `Hiro paused on ${L(P[a])}.`), flip); },
+  ask: (a) => { S.brainQ = L(ANSWERS[a].q); S.answer = { key: a, q: S.brainQ }; render(); },
+  chartTable: () => { S.chartTable = !S.chartTable; render(); },
+  resume: () => { S.cancelled = false; render(); notify(t(`استُؤنف الاشتراك. الدفعة القادمة في ${chargeDate()}.`, `Subscription resumed. Next payment on ${chargeDate()}.`), () => { S.cancelled = true; render(); }); },
+  clearFilters: () => { S.q = ""; S.fProject = "all"; S.fStage = "all"; render(); const el = document.getElementById("q"); if (el) el.focus(); },
+  saveContact: () => { const before = SAVED; SAVED = [...SAVED, { ar: "دانة السبيعي", en: "Dana Alsubaie", title: { ar: "أخصائية توظيف أولى، الرياض", en: "Senior recruiter, Riyadh" } }]; S.enrichResult = false; S.enrichQ = ""; render(); notify(t("حُفظت دانة السبيعي في جهات الاتصال.", "Dana Alsubaie saved to contacts."), () => { SAVED = before; render(); }); },
+  proto: () => notify(t("نموذج أولي: هذه الخطوة تفتح صفحتها في المنتج الكامل.", "Prototype: this step opens its own page in the full product.")),
+  dlg: (a, el) => openDialog(a, `[data-act="dlg"][data-arg="${a}"]`), dlgCancel: closeDialog,
+  undo: () => { const u = toastUndo; toastEl.innerHTML = ""; toastUndo = null; clearTimeout(toastTimer); if (u) u(); },
+  toastClose: () => { toastEl.innerHTML = ""; toastUndo = null; clearTimeout(toastTimer); },
+};
+document.addEventListener("click", (e) => { const el = e.target.closest("[data-act]"); if (!el || el.tagName === "INPUT") return; ACTIONS[el.dataset.act](el.dataset.arg, el); });
+document.addEventListener("change", (e) => { const el = e.target; if (el.type === "checkbox" && el.dataset.act) ACTIONS[el.dataset.act](el.dataset.arg, el); });
+document.addEventListener("input", (e) => { const el = e.target; if (!el.dataset || !el.dataset.model) return; S[el.dataset.model] = el.value; if (el.dataset.live) render(); });
+document.addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (e.target.id === "dlgForm") submitDialog(e.target);
+  else if (e.target.id === "brainForm") { const q = S.brainQ.trim(); if (!q) return; const k = Object.keys(ANSWERS).find((k) => ANSWERS[k].q && (ANSWERS[k].q.ar === q || ANSWERS[k].q.en === q)) || "free"; S.answer = { key: k, q }; render(); }
+  else if (e.target.id === "enrichForm") { const ok = /linkedin\.com\/in\/.+/i.test(S.enrichQ); S.enrichErr = !ok; S.enrichResult = ok; render(); if (!ok) document.getElementById("enrichQ").focus(); }
+});
+/* Agent tabs on the dashboard: arrows (mirrored in RTL), Home, End. Focus stays on the tab. */
+document.addEventListener("keydown", (e) => {
+  const tab = e.target.closest && e.target.closest('[role="tab"]'); if (!tab) return;
+  const i = AGENTS.findIndex((a) => a.id === tab.dataset.arg), rtl = S.lang === "ar", fwd = rtl ? "ArrowLeft" : "ArrowRight", back = rtl ? "ArrowRight" : "ArrowLeft";
+  const n = e.key === fwd ? (i + 1) % 5 : e.key === back ? (i + 4) % 5 : e.key === "Home" ? 0 : e.key === "End" ? 4 : null;
+  if (n === null) return; e.preventDefault(); S.dashAgent = AGENTS[n].id;
+  try { history.replaceState(null, "", "#dash-" + S.dashAgent); } catch (err) {}
+  render(); const el = document.getElementById("tab-" + S.dashAgent); el.focus(); el.scrollIntoView({ block: "nearest", inline: "nearest" });
+});
+/* Route lives in the hash: #dashboard, #dash-voice, #shortlist ... so reload and shared links land in the same place. */
+function readHash() {
+  const h = location.hash.slice(1), prev = S.route;
+  if (h.startsWith("dash-") && AGENT[h.slice(5)]) { S.route = "dashboard"; S.dashAgent = h.slice(5); }
+  else if (VIEWS[h]) S.route = h; else S.route = "dashboard";
+  render(); if (prev !== S.route) scrollTo(0, 0);
+}
+addEventListener("hashchange", readHash);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (!S.theme) render(); });
+readHash();
+</script>
